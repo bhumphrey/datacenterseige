@@ -1,0 +1,1845 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Datacenter Siege</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pirata+One&family=IBM+Plex+Mono:wght@400;600;700&family=Karla:wght@400;600;700&display=swap">
+<style>
+  /* Single deliberate look: a night-green field desk around a painted valley. */
+  :root {
+    --ink: #121813;
+    --panel: #1b241d;
+    --line: #34443a;
+    --parch: #efe6cf;
+    --paper: #f3edd8;
+    --paper-ink: #1b1f1a;
+    --muted: #9fb0a2;
+    --hazard: #f2b233;
+    --money: #74b36d;
+    --rust: #b23a22;
+    --led: #5ce1e6;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--ink);
+    color: var(--parch);
+    font-family: Karla, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  .app {
+    height: 100%;
+    max-width: 1680px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-block: 10px;
+    padding-inline: 16px;
+  }
+
+  /* HUD */
+  .hud {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 8px 26px;
+    align-items: center;
+  }
+  .brand { display: flex; flex-direction: column; gap: 2px; }
+  .brand-name { font-family: "Pirata One", "UnifrakturCook", Georgia, serif; font-size: 32px; line-height: .95; }
+  .mono, .permit, .mlabel, .wind, .help, .toast {
+    font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  .permit { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .mlabel {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  }
+  .mlabel b { font-size: 16px; color: var(--parch); letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  .bar { height: 11px; background: #0a0f0b; border: 1px solid var(--line); margin-block: 5px 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; transition: width .25s ease-out; }
+  .build .bar i { background: repeating-linear-gradient(-45deg, var(--hazard) 0 7px, #26221a 7px 14px); }
+  .budget .bar i { background: var(--money); }
+  .budget.low .bar i { background: var(--rust); }
+  .meter small { font-size: 12.5px; color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wind { text-align: right; display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
+  .wind span { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .wind b { font-size: 16px; }
+  .wind small { font-size: 12px; color: var(--muted); }
+  .wind small.ready { color: var(--hazard); }
+  .audio { display: flex; gap: 6px; justify-content: flex-end; }
+  .mute { background: transparent; color: var(--muted); cursor: pointer;
+    border: 1px solid var(--line); padding: 2px 8px; margin-top: 2px;
+    font: 600 11px "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .06em; text-transform: uppercase;
+  }
+  .mute:hover { color: var(--parch); border-color: var(--muted); }
+  .mute:focus-visible { outline: 2px solid var(--hazard); outline-offset: 2px; }
+  .mute[aria-pressed="true"] { color: var(--rust); border-color: var(--rust); }
+
+  /* Stage */
+  .stage { flex: 1; min-height: 0; position: relative; display: grid; place-items: center; }
+  .frame { position: relative; box-shadow: 0 0 0 1px var(--line), 0 24px 60px rgba(0,0,0,.5); }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+  .caption {
+    position: absolute; left: 50%; top: 4%; transform: translateX(-50%);
+    width: 88%; text-align: center; text-wrap: balance;
+    font-family: "Pirata One", Georgia, serif; font-size: clamp(17px, 2.5vw, 36px); line-height: 1.05;
+    color: #fffaf0; text-shadow: 0 2px 14px rgba(0,0,0,.55), 0 0 2px rgba(0,0,0,.6);
+    opacity: 0; transition: opacity .7s; pointer-events: none;
+  }
+  .caption.show { opacity: 1; }
+  .toast {
+    position: absolute; left: 50%; bottom: 7%; transform: translateX(-50%);
+    font-size: clamp(11px, 1.25vw, 15px); font-weight: 600; white-space: nowrap;
+    background: rgba(18,24,19,.88); color: var(--hazard);
+    padding: 6px 12px; border-left: 3px solid var(--hazard);
+    opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  /* Notice-board overlay */
+  .overlay {
+    position: absolute; inset: 0; overflow: auto;
+    display: grid; place-items: center; padding: 16px;
+    background: rgba(8,12,9,.38);
+  }
+  .notice {
+    width: 100%; max-width: 520px; background: var(--paper); color: var(--paper-ink);
+    border: 1px solid #cfc5a6; box-shadow: 0 20px 70px rgba(0,0,0,.55);
+    animation: pin .45s cubic-bezier(.2,.9,.3,1.2);
+  }
+  @keyframes pin { from { transform: translateY(14px) rotate(-1deg); opacity: 0; } to { transform: none; opacity: 1; } }
+  .notice-head {
+    display: flex; justify-content: space-between; gap: 12px;
+    background: var(--hazard); color: #15140e; padding: 8px 20px;
+    font: 700 11.5px/1.2 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase;
+  }
+  .notice-body { padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .notice h1 {
+    margin: 0; font-family: "Pirata One", Georgia, serif; font-weight: 400;
+    font-size: clamp(42px, 7vw, 66px); line-height: .88; text-wrap: balance;
+  }
+  .lede { margin: 0; font-size: 16px; line-height: 1.45; max-width: 60ch; }
+  .facts {
+    margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 16px;
+    font: 12.5px/1.45 "IBM Plex Mono", ui-monospace, monospace;
+    border-block: 1px solid #d3c9aa; padding-block: 10px;
+  }
+  .facts dt { text-transform: uppercase; letter-spacing: .06em; color: #6b6a58; }
+  .facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .rules { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; font-size: 14.5px; line-height: 1.4; }
+  .rules b { font-family: "IBM Plex Mono", monospace; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; display: inline-block; min-width: 42px; }
+  .stamp {
+    align-self: flex-start; transform: rotate(-6deg); margin-block: 2px;
+    border: 3px solid var(--rust); color: var(--rust); padding: 5px 12px;
+    font: 700 14px "IBM Plex Mono", monospace; letter-spacing: .12em; text-transform: uppercase;
+    mix-blend-mode: multiply;
+  }
+  .stamp.green { border-color: #2f6b3a; color: #2f6b3a; }
+  .diff { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .diff legend { font: 600 11px "IBM Plex Mono", monospace; letter-spacing: .08em; text-transform: uppercase; color: #6b6a58; padding: 0; margin-bottom: 6px; }
+  .seg { display: flex; border: 1.5px solid var(--paper-ink); }
+  .seg label {
+    flex: 1; text-align: center; padding: 8px 6px; cursor: pointer;
+    font: 600 13px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .06em;
+  }
+  .seg label + label { border-left: 1.5px solid var(--paper-ink); }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label:has(input:checked) { background: var(--paper-ink); color: var(--paper); }
+  .seg label:has(input:focus-visible) { outline: 3px solid var(--hazard); outline-offset: -3px; }
+  .go {
+    font: 700 15px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: .1em;
+    background: var(--paper-ink); color: var(--paper); border: 0; padding: 14px 18px; cursor: pointer;
+    transition: background .15s;
+  }
+  .go:hover { background: #7a2a18; }
+  .go:focus-visible { outline: 3px solid var(--hazard); outline-offset: 2px; }
+  .keys { margin: 0; font: 12px/1.4 "IBM Plex Mono", monospace; color: #6b6a58; text-align: center; }
+
+  .help { font-size: 12px; color: var(--muted); text-align: center; letter-spacing: .02em; }
+  .help kbd { font-family: inherit; border: 1px solid var(--line); padding: 0 5px; border-radius: 3px; color: var(--parch); }
+  .portrait { display: none; }
+
+  @media (max-width: 820px) {
+    .hud { grid-template-columns: 1fr 1fr; gap: 8px 16px; }
+    .brand { grid-column: 1 / -1; flex-direction: row; align-items: baseline; justify-content: space-between; }
+    .brand-name { font-size: 24px; }
+    .wind { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: baseline; text-align: left; }
+    .meter small { font-size: 11px; }
+  }
+  @media (max-width: 700px) and (orientation: portrait) {
+    .portrait { display: block; color: var(--hazard); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .notice { animation: none; }
+    .caption, .toast, .bar i { transition: none; }
+  }
+</style>
+
+<div class="app">
+  <header class="hud">
+    <div class="brand">
+      <span class="brand-name">Datacenter Siege</span>
+      <span class="permit">Permit DC-4471 · Cedar Creek</span>
+    </div>
+    <div class="meter build">
+      <div class="mlabel"><span>Construction</span><b id="buildPct">0%</b></div>
+      <div class="bar"><i id="buildBar"></i></div>
+      <small id="buildSub">0 / 72 sections standing</small>
+    </div>
+    <div class="meter budget" id="budgetMeter">
+      <div class="mlabel"><span>Developer budget</span><b id="budgetVal">$3.36B</b></div>
+      <div class="bar"><i id="budgetBar" style="width:100%"></i></div>
+      <small id="budgetSub">Each wrecked section costs $30M to replace</small>
+    </div>
+    <div class="wind">
+      <span>Wind</span>
+      <b id="windVal">calm</b>
+      <small id="reloadVal">Loaded</small>
+      <div class="audio">
+        <button class="mute" id="musicBtn" type="button" aria-pressed="false">Music on</button>
+        <button class="mute" id="muteBtn" type="button" aria-pressed="false">Sound on</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="stage" id="stage">
+    <div class="frame" id="frame">
+      <canvas id="cv" aria-label="Siege field: trebuchet on the left, construction site on the right"></canvas>
+      <div class="caption" id="caption" aria-live="polite"></div>
+      <div class="toast" id="toast" aria-live="polite"></div>
+    </div>
+    <div class="overlay" id="overlay"></div>
+  </main>
+
+  <footer class="help">
+    Drag anywhere and pull back to aim · release to fire &nbsp;·&nbsp; <kbd>↑</kbd><kbd>↓</kbd> angle &nbsp;<kbd>←</kbd><kbd>→</kbd> power &nbsp;<kbd>Space</kbd> fire &nbsp;<kbd>M</kbd> sound &nbsp;<kbd>B</kbd> music
+    <span class="portrait">Turn your phone sideways for a bigger valley.</span>
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const cv = $("cv"), ctx = cv.getContext("2d"), frameEl = $("frame"), stageEl = $("stage");
+
+  // ---------- World constants ----------
+  const W = 1600, H = 900, HORIZON = 600, GROUND = 770;
+  const COLS = 9, ROWS = 8, N = COLS * ROWS, BW = 42, BH = 36, BX = 1090;
+  const BLOCK_HP = 4, COST = 30, VMAX = 1020, GRAV = 900;
+  const TX = 180, TPY = 600, ARM = 150, ARM_S = 46, SLING = 50;
+  const REST = Math.PI * 0.82, RELEASE = Math.PI * 1.65;
+  const LAUNCH = { x: TX + Math.cos(RELEASE) * (ARM + SLING), y: TPY + Math.sin(RELEASE) * (ARM + SLING) };
+  const CRANE_X = 1530, JIB_Y = 372, HOOK_Y = 442;
+  const DIFF = {
+    easy:   { build: 1.0,  extra: 34, wind: 30, label: "Easy" },
+    normal: { build: 0.78, extra: 42, wind: 55, label: "Normal" },
+    hard:   { build: 0.6,  extra: 50, wind: 85, label: "Hard" },
+  };
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- Helpers ----------
+  const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const easeIn = (t) => t * t;
+  const easeOut = (t) => 1 - (1 - t) * (1 - t);
+  const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+  const rand = (a, b) => a + Math.random() * (b - a);
+  function mulberry(a) {
+    return function () {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const hexCache = new Map();
+  function rgb(h) {
+    let v = hexCache.get(h);
+    if (!v) { v = [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; hexCache.set(h, v); }
+    return v;
+  }
+  // Tint a nature color: haze pushes toward dust, night toward deep blue.
+  function T(h, hk = 1, nk = 0.62) {
+    const A = rgb(h), hz = S.haze * hk * 0.55, nt = S.night * nk;
+    let r = A[0] + (168 - A[0]) * hz, g = A[1] + (158 - A[1]) * hz, b = A[2] + (138 - A[2]) * hz;
+    r += (18 - r) * nt; g += (24 - g) * nt; b += (46 - b) * nt;
+    return `rgb(${r | 0},${g | 0},${b | 0})`;
+  }
+  const TN = (h) => T(h, 0, 0.55);
+  function ell(x, y, rx, ry, rot = 0) {
+    ctx.beginPath(); ctx.ellipse(x, y, Math.max(0.1, rx), Math.max(0.1, ry), rot, 0, Math.PI * 2); ctx.fill();
+  }
+  function line(x1, y1, x2, y2) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); }
+  const depthK = (y) => 0.55 + ((y - HORIZON) / 300) * 0.75;
+  const money = (m) => (m >= 1000 ? "$" + (m / 1000).toFixed(2) + "B" : "$" + Math.max(0, Math.round(m)) + "M");
+  function streamAt(y) {
+    const t = (y - HORIZON) / 300;
+    return { x: 1150 - t * 430 + Math.sin(t * 7) * 40, w: 5 + t * t * 80 };
+  }
+
+  // ---------- Sound (synthesized with Web Audio, no files) ----------
+  const Sfx = (() => {
+    let ac = null, master = null, noiseBuf = null, muted = false, musicMuted = false;
+    let sfxBus = null, musicBus = null, musicIn = null, ambBus = null, siteBus = null;
+    let lastClank = 0, lastSaw = 0;
+    const MUSIC_VOL = 0.26, AMB_VOL = 0.5;
+    try { muted = localStorage.getItem("dcsiege-mute") === "1"; musicMuted = localStorage.getItem("dcsiege-music") === "0"; } catch (e) {}
+    function ensure() {
+      if (!ac) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        ac = new AC();
+        master = ac.createGain();
+        master.gain.value = muted ? 0 : 0.75;
+        const comp = ac.createDynamicsCompressor();
+        master.connect(comp); comp.connect(ac.destination);
+        noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+        const d = noiseBuf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        sfxBus = ac.createGain(); sfxBus.connect(master);
+        ambBus = ac.createGain(); ambBus.gain.value = AMB_VOL; ambBus.connect(master);
+        siteBus = ac.createGain(); siteBus.gain.value = 0.8; siteBus.connect(master);
+        musicBus = ac.createGain(); musicBus.gain.value = musicMuted ? 0 : MUSIC_VOL; musicBus.connect(master);
+        // Music gets a generated hall reverb.
+        musicIn = ac.createGain(); musicIn.connect(musicBus);
+        const verb = ac.createConvolver(), len = ac.sampleRate * 2.4, ir = ac.createBuffer(2, len, ac.sampleRate);
+        for (let c = 0; c < 2; c++) { const ch = ir.getChannelData(c); for (let i = 0; i < len; i++) ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3); }
+        verb.buffer = ir;
+        const wet = ac.createGain(); wet.gain.value = 0.35;
+        musicIn.connect(verb); verb.connect(wet); wet.connect(musicBus);
+        startAmbient();
+        setInterval(schedule, 50);
+        document.addEventListener("visibilitychange", () => { if (document.hidden) ac.suspend(); else ac.resume(); });
+      }
+      if (ac.state === "suspended" && !document.hidden) ac.resume();
+      return ac;
+    }
+    const ready = () => ac && !muted && ac.state === "running";
+    function out(pan, bus = sfxBus) {
+      if (ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = clamp(pan, -1, 1); p.connect(bus); return p; }
+      return bus;
+    }
+    function shape(g, t, attack, peak, decay) {
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peak, t + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+    }
+    function burst({ at = 0, time, dur, filter = "lowpass", f0, f1 = f0, q = 1, peak, attack = 0.004, pan = 0, bus }) {
+      const t = time ?? ac.currentTime + at, src = ac.createBufferSource(), bq = ac.createBiquadFilter(), g = ac.createGain();
+      src.buffer = noiseBuf; bq.type = filter; bq.Q.value = q;
+      bq.frequency.setValueAtTime(f0, t); bq.frequency.exponentialRampToValueAtTime(f1, t + attack + dur);
+      shape(g, t, attack, peak, dur);
+      src.connect(bq); bq.connect(g); g.connect(out(pan, bus));
+      src.start(t, Math.random() * 1.2); src.stop(t + attack + dur + 0.05);
+    }
+    function tone({ at = 0, time, type = "sine", f0, f1 = f0, dur, peak, attack = 0.004, pan = 0, cut = 0, bus }) {
+      const t = time ?? ac.currentTime + at, o = ac.createOscillator(), g = ac.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + attack + dur);
+      shape(g, t, attack, peak, dur);
+      if (cut) { const f = ac.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = cut; o.connect(f); f.connect(g); }
+      else o.connect(g);
+      g.connect(out(pan, bus));
+      o.start(t); o.stop(t + attack + dur + 0.05);
+    }
+    const panOf = (x) => ((x / W) * 2 - 1) * 0.7;
+
+    // ----- Music: a step sequencer that follows the round -----
+    const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+    const SONGS = {
+      // D major, I–vi–IV–V
+      pastoral: { bpm: 80, chords: [[62, 66, 69], [59, 62, 66], [55, 59, 62], [57, 61, 64]], roots: [38, 35, 31, 33] },
+      // D minor, i–VI–VII–V
+      siege: { bpm: 96, chords: [[62, 65, 69], [58, 62, 65], [60, 64, 67], [57, 61, 64]], roots: [38, 34, 36, 33] },
+      // D Phrygian with a chromatic bass: i–bII–i–vii°. Takes over as the hall rises.
+      dark: { chords: [[62, 65, 69], [63, 67, 70], [62, 65, 69], [61, 64, 67]], roots: [38, 39, 38, 37] },
+      // D minor, i–iv–i–V
+      dirge: { bpm: 54, chords: [[62, 65, 69], [55, 58, 62], [62, 65, 69], [57, 61, 64]], roots: [38, 31, 38, 33] },
+    };
+    const PENTA = [74, 76, 78, 81, 83, 86];
+    let nextT = 0, step = 0, bar = 0, mood = "pastoral";
+    function moodFor() {
+      if (!S) return "pastoral";
+      if (S.state === "build") return "siege";
+      if (S.state === "collapse") return "silence";
+      if (S.state === "complete" || S.state === "lost") return "dirge";
+      return "pastoral";
+    }
+    function schedule() {
+      if (!ac || ac.state !== "running") return;
+      if (nextT < ac.currentTime) nextT = ac.currentTime + 0.05;
+      while (nextT < ac.currentTime + 0.2) {
+        const m = moodFor();
+        if (m !== mood && (step === 0 || m === "silence" || m === "dirge" || mood === "silence")) { mood = m; step = 0; bar = 0; }
+        const prog = S ? clamp(S.maxP) : 0;
+        const bpm = mood === "siege" ? 94 + prog * 22 : mood === "dirge" ? 54 : 80;
+        const sd = 60 / bpm / 4;
+        if (!musicMuted && !muted && mood !== "silence") playStep(mood, step, bar, nextT, sd, prog);
+        nextT += sd; step = (step + 1) % 16; if (step === 0) bar++;
+      }
+    }
+    const pluck = (m, t, g, dur) => tone({ time: t, type: "triangle", f0: mtof(m), dur, peak: g, attack: 0.004, bus: musicIn });
+    const bassNote = (m, t, g, dur, type = "sine", cut = 0) => tone({ time: t, type, f0: mtof(m), dur, peak: g, attack: 0.01, cut, bus: musicIn });
+    function pad(chord, t, len, g, type, cut, spread = 5) {
+      const f = ac.createBiquadFilter(), gg = ac.createGain();
+      f.type = "lowpass"; f.frequency.value = cut;
+      gg.gain.setValueAtTime(0.0001, t);
+      gg.gain.exponentialRampToValueAtTime(g, t + len * 0.3);
+      gg.gain.setValueAtTime(g, t + len * 0.7);
+      gg.gain.exponentialRampToValueAtTime(0.0001, t + len * 1.1);
+      f.connect(gg); gg.connect(musicIn);
+      for (const n of chord) for (const det of [-spread, spread]) {
+        const o = ac.createOscillator(); o.type = type; o.frequency.value = mtof(n); o.detune.value = det;
+        o.connect(f); o.start(t); o.stop(t + len * 1.15);
+      }
+    }
+    function taiko(t, g) {
+      tone({ time: t, f0: 120, f1: 42, dur: 0.38, peak: 0.5 * g, attack: 0.003, bus: musicIn });
+      burst({ time: t, dur: 0.12, f0: 500, f1: 120, peak: 0.22 * g, bus: musicIn });
+    }
+    function bell(m, t, g) {
+      tone({ time: t, f0: mtof(m), dur: 2.6, peak: g, attack: 0.003, bus: musicIn });
+      tone({ time: t, f0: mtof(m) * 2.76, dur: 1.1, peak: g * 0.3, attack: 0.003, bus: musicIn });
+    }
+    // A wordless choir: sawtooths through two vowel formants.
+    function choir(notes, t, len, g) {
+      const f1 = filt("bandpass", 720, 5), f2 = filt("bandpass", 1150, 6), gg = ac.createGain();
+      gg.gain.setValueAtTime(0.0001, t);
+      gg.gain.exponentialRampToValueAtTime(g, t + len * 0.4);
+      gg.gain.exponentialRampToValueAtTime(0.0001, t + len * 1.05);
+      f1.connect(gg); f2.connect(gg); gg.connect(musicIn);
+      for (const n of notes) for (const det of [-9, 0, 9]) {
+        const o = ac.createOscillator(); o.type = "sawtooth"; o.frequency.value = mtof(n); o.detune.value = det;
+        o.connect(f1); o.connect(f2); o.start(t); o.stop(t + len * 1.1);
+      }
+    }
+    function playStep(m, s, b, t, sd, prog) {
+      // "evil" climbs from 0 at a quarter built to 1 at nine-tenths built.
+      const evil = m === "siege" ? clamp((prog - 0.25) / 0.65) : 0;
+      const song = m === "siege" && evil > 0.2 ? SONGS.dark : SONGS[m];
+      const ci = b % 4, ch = song.chords[ci], root = song.roots[ci];
+      if (m === "pastoral") {
+        if (s === 0) { pad(ch, t, sd * 16, 0.03, "triangle", 1400); bassNote(root, t, 0.09, sd * 7); }
+        if (s === 8) bassNote(root + 7, t, 0.06, sd * 6);
+        if ([0, 3, 6, 10, 12].includes(s) && Math.random() < 0.85) pluck(ch[((s / 3) | 0) % 3] + 12, t, 0.04, 0.8);
+        if (b % 2 === 1 && s % 4 === 2 && Math.random() < 0.4) pluck(PENTA[(Math.random() * PENTA.length) | 0] + 12, t, 0.03, 1.3);
+      } else if (m === "siege") {
+        // Pad grows murkier and more out of tune.
+        if (s === 0) pad(ch.map((n) => n - 12), t, sd * 16, 0.022 + evil * 0.018, "sawtooth", 850 - evil * 420, 5 + evil * 22);
+        // Ostinato: the octave leap turns into a grinding flat second.
+        if (s % 2 === 0) bassNote(root + (s % 8 === 6 ? (evil > 0.45 ? 1 : 12) : 0), t, 0.07 + evil * 0.03, sd * 1.5, "square", 420 - evil * 120);
+        const accent = { 0: 1, 6: 0.6, 8: 0.9, 11: 0.45, 14: 0.7 }[s];
+        if (accent) taiko(t, accent * (0.55 + prog * 0.45));
+        if (prog > 0.35 && (s === 4 || s === 12)) burst({ time: t, dur: 0.09, filter: "bandpass", f0: 1900, q: 1.5, peak: 0.06, bus: musicIn });
+        // Tritone drone under everything.
+        if (evil > 0.3 && s === 0) bassNote(root + 6, t, 0.02 + evil * 0.03, sd * 15, "sawtooth", 320);
+        // Cold machine bleeps: the datacenter waking up.
+        if (evil > 0.45 && s % 2 === 1 && Math.random() < 0.55) {
+          const n = root + [36, 42, 37, 43][(Math.random() * 4) | 0];
+          tone({ time: t, type: "square", f0: mtof(n), dur: 0.05, peak: 0.01 + evil * 0.006, attack: 0.002, cut: 4500, bus: musicIn });
+        }
+        // Sub boom on the downbeat.
+        if (evil > 0.5 && s === 0) tone({ time: t, f0: 58, f1: 28, dur: 1.2, peak: 0.12 + evil * 0.08, attack: 0.005, bus: musicIn });
+        // Choir chanting a diminished chord.
+        if (evil > 0.55 && s === 0 && b % 2 === 0) choir([root + 12, root + 15, root + 18], t, sd * 32, 0.012 + evil * 0.016);
+        // Minor-second cluster that won't resolve.
+        if (evil > 0.7 && s === 8) pad([root + 24, root + 25], t, sd * 8, 0.008 + evil * 0.008, "sawtooth", 1500, 14);
+        // Descending funeral bell, one semitone lower every two bars.
+        if (evil > 0.78 && s === 0 && b % 2 === 0) bell(root + 36 - ((b / 2) % 6), t, 0.035);
+        if (prog > 0.8) pluck(ch[s % 3] + 24 + (s % 4 === 3 ? 1 : 0), t, 0.014, 0.12);
+      } else if (m === "dirge") {
+        if (s === 0) { pad(ch.map((n) => n - 12), t, sd * 17, 0.04, "sawtooth", 480, 18); bell(ch[0] + 12, t, 0.05); bassNote(root, t, 0.08, sd * 14); bassNote(root + 6, t, 0.03, sd * 15, "sawtooth", 260); }
+        if (s === 0 && b % 2 === 0) choir([root + 12, root + 15, root + 18], t, sd * 32, 0.02);
+        if (s === 8 && b % 2) bell(ch[2] + 12, t, 0.03);
+      }
+    }
+
+    // ----- Ambience: continuous beds whose levels follow the valley -----
+    let amb = null, ambAcc = 0;
+    function loopNoise() { const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true; s.start(0, Math.random() * 1.9); return s; }
+    function filt(type, freq, q = 1) { const f = ac.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q; return f; }
+    function silentGain() { const g = ac.createGain(); g.gain.value = 0; return g; }
+    function startAmbient() {
+      // Creek: a broad wash plus a narrow, wandering babble.
+      const stG = silentGain(), stF = filt("bandpass", 1500, 0.6);
+      loopNoise().connect(stF); stF.connect(stG); stG.connect(out(0.05, ambBus));
+      const bbG = silentGain(), bbF = filt("bandpass", 2400, 4);
+      loopNoise().connect(bbF); bbF.connect(bbG); bbG.connect(out(0.1, ambBus));
+      // Wind through the trees.
+      const wnG = silentGain(), wnF = filt("lowpass", 420, 0.5);
+      loopNoise().connect(wnF); wnF.connect(wnG); wnG.connect(ambBus);
+      // Diesel engines on site.
+      const mG = silentGain(), mF = filt("lowpass", 260, 1);
+      for (const f of [46, 49.5]) { const o = ac.createOscillator(); o.type = "sawtooth"; o.frequency.value = f; o.connect(mF); o.start(); }
+      mF.connect(mG); mG.connect(out(0.6, ambBus));
+      // Mains hum from the finished datacenter.
+      const hG = silentGain();
+      for (const [f, type] of [[60, "sine"], [120, "sine"], [180, "triangle"]]) { const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.connect(hG); o.start(); }
+      hG.connect(out(0.5, ambBus));
+      // Crane slew motor: whines up while the trolley travels.
+      const crG = silentGain(), crF = filt("lowpass", 700, 2), crO = ac.createOscillator();
+      crO.type = "sawtooth"; crO.frequency.value = 70; crO.connect(crF); crF.connect(crG); crG.connect(out(0.55, siteBus)); crO.start();
+      amb = { stG, bbG, bbF, wnG, wnF, mG, hG, crG, crO, birdT: 1, beepT: 0, jackT: 3, hammerT: 2, sawT: 7, trolley: null, truckState: "wait" };
+    }
+
+    // ----- Construction site one-shots -----
+    const sitePan = () => 0.35 + Math.random() * 0.4;
+    function jackhammer(len) {
+      const t0 = ac.currentTime + 0.02, pan = sitePan();
+      for (let t = 0; t < len; t += 0.052) {
+        burst({ time: t0 + t, dur: 0.028, filter: "bandpass", f0: 700 + Math.random() * 300, q: 0.9, peak: 0.06, attack: 0.002, pan, bus: siteBus });
+        tone({ time: t0 + t, f0: 90, f1: 60, dur: 0.03, peak: 0.05, attack: 0.002, pan, bus: siteBus });
+      }
+    }
+    function hammering(n) {
+      const t0 = ac.currentTime + 0.02, pan = sitePan(), f = 1500 + Math.random() * 700;
+      for (let i = 0; i < n; i++) {
+        const t = t0 + i * (0.32 + Math.random() * 0.08);
+        tone({ time: t, type: "triangle", f0: f, f1: f * 0.97, dur: 0.16, peak: 0.03, attack: 0.001, pan, bus: siteBus });
+        burst({ time: t, dur: 0.02, filter: "highpass", f0: 2800, peak: 0.05, attack: 0.001, pan, bus: siteBus });
+      }
+    }
+    function grinder(len) {
+      const t = ac.currentTime + 0.02, pan = sitePan();
+      const o = ac.createOscillator(), f = filt("bandpass", 2600, 3), g = ac.createGain();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(700, t); o.frequency.exponentialRampToValueAtTime(1350, t + 0.3);
+      o.frequency.setValueAtTime(1350, t + len - 0.3); o.frequency.exponentialRampToValueAtTime(600, t + len);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.018, t + 0.2);
+      g.gain.setValueAtTime(0.018, t + len - 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+      o.connect(f); f.connect(g); g.connect(out(pan, siteBus)); o.start(t); o.stop(t + len + 0.05);
+      burst({ time: t + 0.15, dur: len - 0.3, filter: "bandpass", f0: 4200, q: 2, peak: 0.02, attack: 0.1, pan, bus: siteBus });
+    }
+    function truckArrives() {
+      const pan = 0.8;
+      burst({ dur: 0.7, filter: "highpass", f0: 2600, peak: 0.05, attack: 0.01, pan, bus: siteBus }); // air brakes
+      burst({ at: 0.5, dur: 1.8, f0: 900, f1: 260, peak: 0.08, attack: 0.4, pan, bus: siteBus });     // gravel sliding out
+      for (let i = 0; i < 16; i++)
+        burst({ at: 0.6 + Math.random() * 1.6, dur: 0.03, filter: "bandpass", f0: 1500 + Math.random() * 2000, q: 2, peak: 0.03 + Math.random() * 0.03, pan, bus: siteBus });
+    }
+    function chirp() {
+      const t = ac.currentTime + 0.02, base = 2400 + Math.random() * 2200, n = 2 + ((Math.random() * 4) | 0);
+      const pan = (Math.random() * 2 - 1) * 0.8, rising = Math.random() < 0.5;
+      for (let i = 0; i < n; i++) {
+        const tt = t + i * (0.07 + Math.random() * 0.05), f = base * (1 + (Math.random() - 0.5) * 0.25);
+        tone({ time: tt, f0: rising ? f : f * 1.3, f1: rising ? f * 1.35 : f * 0.8, dur: 0.05 + Math.random() * 0.05, peak: 0.02 + Math.random() * 0.025, attack: 0.006, pan, bus: ambBus });
+      }
+    }
+    function ambient(dt) {
+      if (!amb || ac.state !== "running" || !S) return;
+      ambAcc += dt; if (ambAcc < 0.1) return;
+      const elapsed = ambAcc; ambAcc = 0;
+      const now = ac.currentTime, water = 1 - S.dryness;
+      amb.stG.gain.setTargetAtTime(0.09 * water, now, 0.4);
+      amb.bbG.gain.setTargetAtTime(0.045 * water * (0.5 + 0.5 * Math.random()), now, 0.08);
+      amb.bbF.frequency.setTargetAtTime(1800 + Math.random() * 1600, now, 0.05);
+      const gust = 0.7 + 0.3 * Math.sin(S.time * 0.35) + 0.15 * Math.sin(S.time * 1.3);
+      amb.wnG.gain.setTargetAtTime((0.025 + (Math.abs(S.wind) / 100) * 0.06) * gust, now, 0.6);
+      amb.wnF.frequency.setTargetAtTime(300 + gust * 260, now, 0.6);
+      const dozerOn = S.dozer.active && S.dozer.x < W + 60;
+      const engine = dozerOn ? (S.state === "build" ? 0.05 + 0.03 * S.maxP : 0.03) : 0;
+      amb.mG.gain.setTargetAtTime(engine * (0.8 + 0.2 * Math.random()), now, 0.1);
+      amb.hG.gain.setTargetAtTime(0.045 * S.night, now, 0.8);
+      // Birdsong thins out as the flock leaves, the haze rolls in and night falls.
+      const birds = (S.flock.mode === "gone" ? 0.15 : 1) * (1 - S.haze * 0.8) * (1 - S.night);
+      amb.birdT -= elapsed;
+      if (amb.birdT <= 0) { amb.birdT = 0.6 + (Math.random() * 2.6) / Math.max(0.2, birds); if (Math.random() < birds) chirp(); }
+      // Site noise: busier as the hall rises, silent when the crane is jammed.
+      const working = S.state === "build" && S.bt > 2.5;
+      const busy = 0.5 + S.maxP;
+      if (working && S.halt <= 0) {
+        amb.jackT -= elapsed * busy; amb.hammerT -= elapsed * busy; amb.sawT -= elapsed * busy;
+        if (amb.jackT <= 0) { const len = 0.8 + Math.random() * 1.6; jackhammer(len); amb.jackT = len + 3 + Math.random() * 6; }
+        if (amb.hammerT <= 0) { const n = 3 + ((Math.random() * 4) | 0); hammering(n); amb.hammerT = n * 0.36 + 1.5 + Math.random() * 4; }
+        if (amb.sawT <= 0) { const len = 1.1 + Math.random() * 1.2; grinder(len); amb.sawT = len + 7 + Math.random() * 8; }
+      }
+      const tx = S.trolleyX, speed = amb.trolley == null ? 0 : Math.abs(tx - amb.trolley) / elapsed;
+      amb.trolley = tx;
+      const whine = working ? Math.min(1, speed / 400) : 0;
+      amb.crG.gain.setTargetAtTime(0.035 * whine, now, 0.08);
+      amb.crO.frequency.setTargetAtTime(60 + whine * 70, now, 0.1);
+      if (S.truck.state === "unload" && amb.truckState !== "unload") truckArrives();
+      amb.truckState = S.truck.state;
+      // Reversing beeper while the dump truck unloads.
+      if (S.truck.state === "unload") {
+        amb.beepT -= elapsed;
+        if (amb.beepT <= 0) { amb.beepT = 0.5; tone({ type: "square", f0: 1050, dur: 0.22, peak: 0.025, pan: 0.7, cut: 3000, bus: ambBus }); }
+      } else amb.beepT = 0;
+    }
+
+    return {
+      unlock: ensure,
+      ambient: (dt) => { if (ac) ambient(dt); },
+      get muted() { return muted; },
+      get musicMuted() { return musicMuted; },
+      toggle() {
+        muted = !muted;
+        try { localStorage.setItem("dcsiege-mute", muted ? "1" : "0"); } catch (e) {}
+        if (ensure()) master.gain.setTargetAtTime(muted ? 0 : 0.75, ac.currentTime, 0.02);
+        return muted;
+      },
+      toggleMusic() {
+        musicMuted = !musicMuted;
+        try { localStorage.setItem("dcsiege-music", musicMuted ? "0" : "1"); } catch (e) {}
+        if (ensure()) musicBus.gain.setTargetAtTime(musicMuted ? 0 : MUSIC_VOL, ac.currentTime, 0.1);
+        return musicMuted;
+      },
+      // Rope creak while the arm swings, a thunk against the crossbar, then the whoosh of the rock.
+      launch(power) {
+        if (!ready()) return;
+        const p = -0.7;
+        tone({ type: "sawtooth", f0: 140, f1: 70, dur: 0.26, peak: 0.05, attack: 0.02, pan: p });
+        burst({ dur: 0.22, filter: "bandpass", f0: 700, f1: 300, q: 6, peak: 0.12, attack: 0.03, pan: p });
+        tone({ at: 0.29, f0: 130, f1: 45, dur: 0.2, peak: 0.55, pan: p });
+        burst({ at: 0.29, dur: 0.09, f0: 900, f1: 200, peak: 0.35, pan: p });
+        burst({ at: 0.3, dur: 0.55, filter: "bandpass", f0: 350, f1: 1400 + power * 900, q: 1.4, peak: 0.18 + power * 0.14, attack: 0.08, pan: -0.4 });
+      },
+      // Rock into dirt.
+      thud(x) {
+        if (!ready()) return;
+        const p = panOf(x);
+        tone({ f0: 95, f1: 38, dur: 0.35, peak: 0.6, pan: p });
+        burst({ dur: 0.4, f0: 700, f1: 120, peak: 0.45, pan: p });
+      },
+      // Rock into concrete; sections that break add falling debris and a rumble.
+      crunch(x, killed) {
+        if (!ready()) return;
+        const p = panOf(x);
+        tone({ f0: 75, f1: 40, dur: 0.3, peak: 0.6, pan: p });
+        burst({ dur: 0.22, filter: "bandpass", f0: 2200, f1: 500, q: 1.2, peak: 0.55, pan: p });
+        if (killed > 0) {
+          burst({ at: 0.05, dur: 0.9 + killed * 0.1, f0: 260, f1: 70, peak: Math.min(0.7, 0.3 + killed * 0.1), attack: 0.03, pan: p });
+          const n = 5 + killed * 3;
+          for (let i = 0; i < n; i++)
+            burst({ at: 0.08 + Math.random() * (0.5 + killed * 0.08), dur: 0.04 + Math.random() * 0.06, filter: "highpass", f0: 1500 + Math.random() * 2500, peak: 0.08 + Math.random() * 0.14, pan: p + (Math.random() - 0.5) * 0.2 });
+        }
+      },
+      // A section set down by the crane (or dropping after a hit).
+      clank(x) {
+        if (!ready() || ac.currentTime - lastClank < 0.08) return;
+        lastClank = ac.currentTime;
+        const p = panOf(x);
+        tone({ f0: 95, f1: 50, dur: 0.22, peak: 0.14, pan: p, bus: siteBus });
+        tone({ type: "triangle", f0: 430, f1: 410, dur: 0.35, peak: 0.035, attack: 0.002, pan: p, bus: siteBus });
+        burst({ dur: 0.08, filter: "bandpass", f0: 1400, q: 1.5, peak: 0.08, pan: p, bus: siteBus });
+      },
+      // Chainsaw revving through a trunk.
+      chainsaw(x) {
+        if (!ready() || ac.currentTime - lastSaw < 0.6) return;
+        lastSaw = ac.currentTime;
+        const t = ac.currentTime + 0.02, p = panOf(x), len = 1.1;
+        const o = ac.createOscillator(), lfo = ac.createOscillator(), lg = ac.createGain(), f = filt("lowpass", 1800, 1), g = ac.createGain();
+        o.type = "sawtooth";
+        o.frequency.setValueAtTime(80, t); o.frequency.exponentialRampToValueAtTime(150, t + 0.25); o.frequency.setValueAtTime(150, t + 0.7); o.frequency.exponentialRampToValueAtTime(95, t + len);
+        lfo.frequency.value = 24; lg.gain.value = 18; lfo.connect(lg); lg.connect(o.frequency);
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.04, t + 0.08); g.gain.setValueAtTime(0.04, t + len - 0.2); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        o.connect(f); f.connect(g); g.connect(out(p, siteBus));
+        o.start(t); lfo.start(t); o.stop(t + len + 0.05); lfo.stop(t + len + 0.05);
+        burst({ time: t + 0.2, dur: 0.6, filter: "bandpass", f0: 3000, q: 1, peak: 0.025, attack: 0.05, pan: p, bus: siteBus });
+      },
+      // Trunk creaks over and hits the ground.
+      treeFall(x) {
+        if (!ready()) return;
+        const p = panOf(x);
+        tone({ type: "sawtooth", f0: 240, f1: 110, dur: 0.4, peak: 0.02, attack: 0.05, cut: 900, pan: p, bus: siteBus });
+        tone({ at: 0.05, f0: 80, f1: 35, dur: 0.4, peak: 0.2, pan: p, bus: siteBus });
+        burst({ at: 0.05, dur: 0.6, f0: 2500, f1: 300, peak: 0.08, pan: p, bus: siteBus });
+      },
+      // Rock off a steel crane: inharmonic ring.
+      clang(x) {
+        if (!ready()) return;
+        const p = panOf(x);
+        [[523, 0.16], [1187, 0.1], [1766, 0.07], [2630, 0.04]].forEach(([f, pk]) =>
+          tone({ type: "triangle", f0: f, f1: f * 0.985, dur: 1.3, peak: pk, attack: 0.002, pan: p }));
+        burst({ dur: 0.06, filter: "highpass", f0: 3000, peak: 0.35, pan: p });
+      },
+      // Whole building coming down.
+      collapse() {
+        if (!ready()) return;
+        const p = panOf(1280);
+        burst({ dur: 3.2, f0: 220, f1: 50, peak: 0.8, attack: 0.15, pan: p });
+        tone({ f0: 55, f1: 28, dur: 2.6, peak: 0.5, attack: 0.2, pan: p });
+        for (let i = 0; i < 30; i++)
+          burst({ at: Math.random() * 2.6, dur: 0.05 + Math.random() * 0.1, filter: "bandpass", f0: 800 + Math.random() * 2500, q: 2, peak: 0.1 + Math.random() * 0.2, pan: p + (Math.random() - 0.5) * 0.5 });
+      },
+      // Crane tower hitting the ground.
+      crash(x) {
+        if (!ready()) return;
+        const p = panOf(x);
+        tone({ f0: 70, f1: 30, dur: 0.6, peak: 0.7, pan: p });
+        burst({ dur: 0.7, f0: 1200, f1: 150, peak: 0.6, pan: p });
+        [[310, 0.12], [740, 0.07], [1130, 0.05]].forEach(([f, pk]) => tone({ type: "triangle", f0: f, f1: f * 0.97, dur: 0.9, peak: pk, pan: p }));
+      },
+    };
+  })();
+
+  // ---------- Static scenery (seeded, shared across rounds) ----------
+  const sr = mulberry(4471);
+  const farHills = [], nearHills = [], treeline = [], tufts = [], stars = [];
+  for (let x = 0; x <= W + 20; x += 20) {
+    farHills.push([x, 468 + Math.sin(x * 0.004) * 42 + Math.sin(x * 0.011 + 1) * 22 + sr() * 5]);
+    nearHills.push([x, 548 + Math.sin(x * 0.006 + 2) * 28 + Math.sin(x * 0.017) * 11]);
+  }
+  for (let x = -10; x <= W + 10; x += 13) treeline.push([x, 7 + sr() * 13]);
+  for (let i = 0; i < 300; i++) {
+    const x = sr() * W, y = HORIZON + 8 + sr() * 292, s = streamAt(y);
+    if (Math.abs(x - s.x) < s.w / 2 + 6) continue;
+    tufts.push({ x, y, h: 4 + sr() * 6, f: sr() < 0.28 ? ["#f2d16b", "#e88fb0", "#ffffff", "#b79be3"][(sr() * 4) | 0] : null });
+  }
+  for (let i = 0; i < 90; i++) stars.push({ x: sr() * W, y: sr() * 520, s: 0.6 + sr() * 1.6, p: sr() * 6 });
+  const streamL = [], streamR = [];
+  for (let i = 0; i <= 40; i++) {
+    const y = HORIZON + (i / 40) * 300, s = streamAt(y);
+    streamL.push([s.x - s.w / 2, y, s.x, s.w]);
+  }
+
+  // ---------- Round state ----------
+  let S;
+  function mkTree(r, x, y, never) {
+    const site = x > 1000 && !never;
+    return {
+      x, y, s: 0.85 + r() * 0.45, kind: r() < 0.55 ? "pine" : "oak", state: "alive", grow: 1, fallT: 0,
+      dir: r() < 0.5 ? -1 : 1, log: 0, site,
+      clearT: site ? 1 + ((1600 - x) / 600) * 4.5 + r() * 0.6 : 0,
+      cutAt: never ? 9 : x < 480 ? 0.65 + r() * 0.6 : 0.1 + r() * 0.85,
+      regrowAt: -1, sway: r() * 6,
+    };
+  }
+  function newWorld(diffKey) {
+    const r = mulberry(1971);
+    const trees = [];
+    for (let i = 0; i < 6; i++) trees.push(mkTree(r, 24 + i * 52 + r() * 18, HORIZON + 10 + r() * 38, true));
+    let tries = 0;
+    while (trees.length < 36 && tries++ < 900) {
+      const x = 330 + r() * 1250, y = HORIZON + 12 + r() * 262, s = streamAt(y);
+      if (Math.abs(x - s.x) < s.w / 2 + 30) continue;
+      if (trees.some((t) => Math.hypot(t.x - x, (t.y - y) * 2.2) < 58)) continue;
+      trees.push(mkTree(r, x, y, false));
+    }
+    const heronX = streamAt(800).x + 46;
+    const animals = [
+      { kind: "deer", x: 1230, y: 705, buck: true, fleeAt: 0 },
+      { kind: "deer", x: 1300, y: 722, fleeAt: 0 },
+      { kind: "rabbit", x: 1380, y: 836, fleeAt: 0 },
+      { kind: "deer", x: 690, y: 815, buck: true, fleeAt: 0.42 },
+      { kind: "deer", x: 748, y: 832, fawn: true, fleeAt: 0.42 },
+      { kind: "rabbit", x: 520, y: 862, fleeAt: 0.28 },
+      { kind: "rabbit", x: 566, y: 874, fleeAt: 0.3 },
+      { kind: "rabbit", x: 975, y: 652, fleeAt: 0.5 },
+      { kind: "fox", x: 430, y: 700, fleeAt: 0.6 },
+      { kind: "heron", x: heronX, y: 800, fleeAt: 0.3 },
+    ].map((a, i) => ({
+      ...a, homeX: a.x, homeY: a.y, dir: i % 2 ? 1 : -1, mode: "home", t: Math.random() * 3, tx: a.x,
+      phase: Math.random() * 6, moving: false, exit: a.x > 1100 ? 1 : -1, jump: 0, retT: 0, vy: 0,
+    }));
+    S = {
+      state: "title", diffKey, diff: DIFF[diffKey], time: 0, st: 0, bt: 0,
+      cols: Array.from({ length: COLS }, () => []), rubble: new Array(COLS).fill(0),
+      budget0: (N + DIFF[diffKey].extra) * COST, budget: (N + DIFF[diffKey].extra) * COST,
+      placements: 0, buildAcc: 0, halt: 0, maxP: 0,
+      dirtA: 0, fenceA: 0, foundationA: 0, dryness: 0, haze: 0, night: 0,
+      craneH: 0, craneFall: 0, craneA: 1, craneShake: 0, craneLanded: false, trolleyX: 1280, completeT: 0,
+      trees, animals,
+      flock: { mode: "home", cx: 640, cy: 220, birds: Array.from({ length: 8 }, (_, i) => ({ ox: (Math.random() - 0.5) * 120, oy: (Math.random() - 0.5) * 50, ph: Math.random() * 6 })) },
+      butterflies: Array.from({ length: 6 }, (_, i) => ({ hx: 380 + i * 170 + Math.random() * 60, hy: 700 + Math.random() * 140, ph: Math.random() * 6, a: 1, fleeAt: 0.15 + i * 0.07 })),
+      clouds: Array.from({ length: 6 }, () => ({ x: Math.random() * W, y: 60 + Math.random() * 230, s: 0.6 + Math.random() * 0.9, v: 6 + Math.random() * 10 })),
+      fish: [], fishT: 2,
+      decals: [], particles: [], rocks: [],
+      dozer: { x: 1760, dir: -1, active: false },
+      truck: { x: 1800, state: "wait", t: 5, tilt: 0 },
+      workers: Array.from({ length: 4 }, (_, i) => ({ x: 1700 + i * 40, tx: 1100 + i * 100, dir: -1, ph: Math.random() * 6, t: 0 })),
+      aim: { angle: 46, power: 0.74 }, arm: { a: REST, mode: "rest", t: 0 }, loaded: true,
+      wind: 0, shake: 0, drag: null,
+      stats: { shots: 0, hits: 0, destroyed: 0, time: 0, craneHits: 0 },
+      said: new Set(),
+    };
+  }
+
+  // ---------- Sizing ----------
+  let scale = 1, dpr = 1;
+  function resize() {
+    const r = stageEl.getBoundingClientRect();
+    let w = r.width, h = (w * 9) / 16;
+    if (h > r.height) { h = r.height; w = (h * 16) / 9; }
+    w = Math.max(200, Math.floor(w)); h = Math.floor((w * 9) / 16);
+    frameEl.style.width = w + "px"; frameEl.style.height = h + "px";
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    scale = w / W;
+  }
+  new ResizeObserver(resize).observe(stageEl);
+
+  // ---------- UI: captions, toasts, overlay ----------
+  let capTimer = 0, toastTimer = 0;
+  function caption(text, ms = 3600) {
+    const el = $("caption"); el.textContent = text; el.classList.add("show");
+    clearTimeout(capTimer); capTimer = setTimeout(() => el.classList.remove("show"), ms);
+  }
+  function toast(text) {
+    const el = $("toast"); el.textContent = text; el.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 1500);
+  }
+  let savedDiff = "normal";
+  try { const d = localStorage.getItem("dcsiege-diff"); if (DIFF[d]) savedDiff = d; } catch (e) {}
+
+  const diffPicker = () => `
+    <fieldset class="diff"><legend>Construction pace</legend><div class="seg">
+      ${Object.entries(DIFF).map(([k, d]) => `<label><input type="radio" name="diff" id="diff-${k}" value="${k}" ${k === savedDiff ? "checked" : ""}>${d.label}</label>`).join("")}
+    </div></fieldset>`;
+
+  function statsList() {
+    const s = S.stats, acc = s.shots ? Math.round((s.hits / s.shots) * 100) : 0;
+    return `<dl class="facts">
+      <dt>Held for</dt><dd>${Math.round(s.time)} s</dd>
+      <dt>Rocks thrown</dt><dd>${s.shots} (${acc}% on target)</dd>
+      <dt>Sections wrecked</dt><dd>${s.destroyed}</dd>
+      <dt>Crane jams</dt><dd>${s.craneHits}</dd>
+      <dt>Rebuild bill</dt><dd>${money(s.destroyed * COST)}</dd>
+      <dt>Pace</dt><dd>${S.diff.label}</dd>
+    </dl>`;
+  }
+
+  function showOverlay(kind) {
+    const ov = $("overlay");
+    let html = "";
+    if (kind === "title") {
+      html = `<article class="notice" role="dialog" aria-labelledby="ovTitle">
+        <div class="notice-head"><span>Notice of proposed construction</span><span>DC-4471</span></div>
+        <div class="notice-body">
+          <h1 id="ovTitle">Datacenter Siege</h1>
+          <p class="lede">A hyperscale data center is about to rise on Cedar Creek. You have one trebuchet, a pile of river rocks, and until the last server hall is racked.</p>
+          <dl class="facts">
+            <dt>Applicant</dt><dd>Nimbus Data LLC</dd>
+            <dt>Project</dt><dd>Data Hall A · 72 sections · 140 MW</dd>
+            <dt>Site</dt><dd>Cedar Creek Valley, wetland parcel 9</dd>
+            <dt>Public hearing</dt><dd>None scheduled</dd>
+          </dl>
+          <ul class="rules">
+            <li><b>Win</b> Wreck sections faster than the crews rebuild them. When the budget runs dry, the building comes down and the valley returns.</li>
+            <li><b>Lose</b> All 72 sections stand at once and the hall goes online.</li>
+            <li><b>Tip</b> Hit low. Everything above a broken section drops and cracks. Hit the crane to halt work for 4 seconds.</li>
+          </ul>
+          ${diffPicker()}
+          <button class="go" id="goBtn">Load the trebuchet</button>
+        </div></article>`;
+    } else if (kind === "won") {
+      html = `<article class="notice" role="dialog" aria-labelledby="ovTitle">
+        <div class="notice-head"><span>Notice of withdrawal</span><span>DC-4471</span></div>
+        <div class="notice-body">
+          <div class="stamp green">Application withdrawn</div>
+          <h1 id="ovTitle">The creek wins</h1>
+          <p class="lede">Nimbus Data ran out of money rebuilding what you knocked down. The site is gone. The trees grew back, the creek runs again, and the deer came home.</p>
+          ${statsList()}
+          ${diffPicker()}
+          <button class="go" id="goBtn">Defend the valley again</button>
+        </div></article>`;
+    } else {
+      html = `<article class="notice" role="dialog" aria-labelledby="ovTitle">
+        <div class="notice-head"><span>Certificate of occupancy</span><span>DC-4471</span></div>
+        <div class="notice-body">
+          <div class="stamp">Approved · Online</div>
+          <h1 id="ovTitle">Datacenter online</h1>
+          <p class="lede">Data Hall A is running at 140 MW, and its cooling towers drink what's left of Cedar Creek. The herons won't be back.</p>
+          ${statsList()}
+          ${diffPicker()}
+          <button class="go" id="goBtn">Try again</button>
+        </div></article>`;
+    }
+    ov.innerHTML = html;
+    ov.hidden = false;
+    ov.querySelectorAll('input[name="diff"]').forEach((inp) =>
+      inp.addEventListener("change", () => { savedDiff = inp.value; try { localStorage.setItem("dcsiege-diff", savedDiff); } catch (e) {} })
+    );
+    const btn = $("goBtn");
+    btn.addEventListener("click", startRound);
+    setTimeout(() => btn.focus({ preventScroll: true }), 50);
+  }
+
+  function startRound() {
+    Sfx.unlock();
+    $("overlay").hidden = true;
+    newWorld(savedDiff);
+    S.wind = (Math.random() * 2 - 1) * S.diff.wind;
+    setState("idyll");
+  }
+
+  function setState(s) {
+    S.state = s; S.st = 0;
+    if (s === "idyll") caption("Dawn over Cedar Creek Valley");
+    if (s === "build") { caption("Permit DC-4471 approved. The survey crews arrive."); S.dozer.active = true; }
+    if (s === "collapse") { S.stats.time = S.bt; S.drag = null; caption("The budget's gone. Nimbus Data pulls out.", 3000); shake(1); Sfx.collapse(); }
+    if (s === "restore") caption("Cedar Creek runs free again", 5000);
+    if (s === "won") showOverlay("won");
+    if (s === "complete") { S.stats.time = S.bt; S.drag = null; caption("Data Hall A is online", 4000); }
+    if (s === "lost") showOverlay("lost");
+  }
+
+  // ---------- Input ----------
+  const canPlay = () => S.state === "idyll" || S.state === "build";
+  function toWorld(e) {
+    const r = cv.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H };
+  }
+  cv.addEventListener("pointerdown", (e) => {
+    Sfx.unlock();
+    if (!canPlay()) return;
+    cv.setPointerCapture(e.pointerId);
+    const p = toWorld(e);
+    S.drag = { x0: p.x, y0: p.y, len: 0 };
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (!S.drag) return;
+    const p = toWorld(e), dx = S.drag.x0 - p.x, dy = S.drag.y0 - p.y, len = Math.hypot(dx, dy);
+    S.drag.len = len;
+    if (len > 12) {
+      let ang = (Math.atan2(-dy, dx) * 180) / Math.PI;
+      if (dx < 0) ang = ang > 0 ? 80 : 10;
+      S.aim.angle = clamp(ang, 10, 80);
+      S.aim.power = clamp(len / 250, 0.2, 1);
+    }
+  });
+  const endDrag = (fireIt) => { if (!S.drag) return; const ok = S.drag.len > 12; S.drag = null; if (fireIt && ok) fire(); };
+  cv.addEventListener("pointerup", () => endDrag(true));
+  cv.addEventListener("pointercancel", () => endDrag(false));
+  function syncMute() {
+    const b = $("muteBtn"), mb = $("musicBtn");
+    b.textContent = Sfx.muted ? "Sound off" : "Sound on";
+    b.setAttribute("aria-pressed", String(Sfx.muted));
+    mb.textContent = Sfx.musicMuted ? "Music off" : "Music on";
+    mb.setAttribute("aria-pressed", String(Sfx.musicMuted));
+  }
+  // Blur so Space keeps firing instead of re-pressing the button.
+  $("muteBtn").addEventListener("click", (e) => { Sfx.toggle(); syncMute(); if (e.detail > 0) e.currentTarget.blur(); });
+  $("musicBtn").addEventListener("click", (e) => { Sfx.toggleMusic(); syncMute(); if (e.detail > 0) e.currentTarget.blur(); });
+  syncMute();
+  window.addEventListener("keydown", (e) => {
+    const inInput = e.target.closest && e.target.closest("input");
+    if (e.key === "m" || e.key === "M") { if (!inInput) { Sfx.toggle(); syncMute(); } return; }
+    if (e.key === "b" || e.key === "B") { if (!inInput) { Sfx.toggleMusic(); syncMute(); } return; }
+    if (!S || !canPlay()) return;
+    Sfx.unlock();
+    if (e.target.closest && e.target.closest("button, input")) return;
+    let used = true;
+    if (e.key === "ArrowUp") S.aim.angle = clamp(S.aim.angle + 1, 10, 80);
+    else if (e.key === "ArrowDown") S.aim.angle = clamp(S.aim.angle - 1, 10, 80);
+    else if (e.key === "ArrowRight") S.aim.power = clamp(S.aim.power + 0.01, 0.2, 1);
+    else if (e.key === "ArrowLeft") S.aim.power = clamp(S.aim.power - 0.01, 0.2, 1);
+    else if (e.key === " " || e.key === "Enter") { if (!e.repeat) fire(); }
+    else used = false;
+    if (used) e.preventDefault();
+  });
+
+  function fire() {
+    if (!canPlay() || !S.loaded || S.arm.mode !== "rest") return;
+    S.loaded = false; S.arm.mode = "swing"; S.arm.t = 0; S.stats.shots++;
+    Sfx.launch(S.aim.power);
+  }
+  function launch() {
+    const a = (S.aim.angle * Math.PI) / 180, v = S.aim.power * VMAX;
+    S.rocks.push({ x: LAUNCH.x, y: LAUNCH.y, vx: Math.cos(a) * v, vy: -Math.sin(a) * v, rot: 0, wind: S.wind, trail: [] });
+  }
+
+  // ---------- Effects ----------
+  function shake(m) { if (!reduceMotion) S.shake = Math.max(S.shake, m); }
+  function addP(p) { if (S.particles.length < 800) S.particles.push(p); }
+  function dust(x, y, n = 8, size = 1) {
+    for (let i = 0; i < n; i++)
+      addP({ type: "dust", x: x + rand(-20, 20) * size, y: y + rand(-10, 6), vx: rand(-40, 40), vy: rand(-50, -5), r: rand(8, 20) * size, life: rand(0.8, 1.5), max: 1.5 });
+  }
+  function chunks(x, y, n = 10) {
+    for (let i = 0; i < n; i++)
+      addP({ type: "chunk", x: x + rand(-14, 14), y: y + rand(-12, 12), vx: rand(-260, 280), vy: rand(-520, -80), rot: rand(0, 6), vr: rand(-10, 10),
+        s: rand(4, 10), gy: GROUND + rand(0, 34), life: rand(1.6, 2.6), c: Math.random() < 0.12 ? "#5ce1e6" : Math.random() < 0.5 ? "#aeb2ab" : "#8e938c" });
+  }
+  function sparks(x, y, n = 12) {
+    for (let i = 0; i < n; i++) addP({ type: "spark", x, y, vx: rand(-300, 300), vy: rand(-340, 60), life: rand(0.25, 0.5) });
+  }
+  function leaves(x, y, n = 14) {
+    for (let i = 0; i < n; i++) addP({ type: "leaf", x: x + rand(-25, 25), y: y + rand(-40, 10), vx: rand(-40, 40), vy: rand(10, 50), seed: rand(0, 6), life: rand(1.2, 2.2), c: Math.random() < 0.5 ? "#5e8f45" : "#3f6b3a" });
+  }
+
+  // ---------- Building ----------
+  const standing = () => S.cols.reduce((n, c) => n + c.length, 0);
+  function nextCol() { let best = 0; for (let c = 1; c < COLS; c++) if (S.cols[c].length < S.cols[best].length) best = c; return best; }
+  function placeBlock() {
+    if (S.budget < COST) return;
+    const c = nextCol(), col = S.cols[c];
+    if (col.length >= ROWS) return;
+    const top = GROUND - (col.length + 1) * BH;
+    const cracks = Array.from({ length: 3 }, () => [rand(6, BW - 6), rand(4, BH - 4), rand(-12, 12), rand(-10, 10), rand(-10, 10), rand(-8, 8)]);
+    col.push({ hp: BLOCK_HP, fall: Math.max(0, top - HOOK_Y), fv: 0, flash: 0, cracks });
+    S.budget -= COST; S.placements++;
+  }
+  function blockAt(x, y) {
+    const c = Math.floor((x - BX) / BW);
+    if (c < 0 || c >= COLS) return false;
+    const i = Math.floor((GROUND - y) / BH);
+    return i >= 0 && i < S.cols[c].length;
+  }
+  function settle(c) {
+    const col = S.cols[c]; let k = 0;
+    for (let i = 0; i < col.length; ) {
+      if (col[i].hp <= 0) {
+        const cx = BX + c * BW + BW / 2, cy = GROUND - (i + 0.5) * BH;
+        chunks(cx, cy, 9); dust(cx, cy, 3, 0.8);
+        col.splice(i, 1); k++;
+        S.rubble[c] = Math.min(S.rubble[c] + 5, 34);
+        for (let j = i; j < col.length; j++) { col[j].hp -= 1; col[j].fall += BH; col[j].flash = 0.15; }
+      } else i++;
+    }
+    return k;
+  }
+  function impact(x, y) {
+    let hit = false, killed = 0;
+    for (let c = 0; c < COLS; c++) {
+      const col = S.cols[c];
+      for (let i = 0; i < col.length; i++) {
+        const bx = BX + c * BW + BW / 2, by = GROUND - (i + 0.5) * BH;
+        const d = Math.hypot(bx - x, by - y);
+        const dmg = d < 26 ? 4 : d < 52 ? 2 : d < 78 ? 1 : 0;
+        if (dmg) { col[i].hp -= dmg; col[i].flash = 0.2; hit = true; }
+      }
+    }
+    for (let c = 0; c < COLS; c++) killed += settle(c);
+    dust(x, Math.min(y, GROUND + 4), hit ? 10 : 7, hit ? 1.3 : 1);
+    if (y >= GROUND) S.decals.push({ kind: "crater", x, y: GROUND + 8 + rand(0, 6), life: 9 });
+    if (!hit && y >= GROUND) S.decals.push({ kind: "rock", x: x + rand(-4, 4), y: GROUND + 10 + rand(0, 8), life: 6 });
+    if (hit) { S.stats.hits++; chunks(x, y, 6); }
+    shake(hit ? 0.7 : 0.3);
+    if (hit) Sfx.crunch(x, killed); else Sfx.thud(x);
+    for (const a of S.animals) if (a.mode === "home" && Math.abs(a.x - x) < 180 && Math.abs(a.y - y) < 160) a.jump = 1;
+    if (killed) {
+      S.stats.destroyed += killed;
+      toast(`${killed} section${killed > 1 ? "s" : ""} down · −${money(killed * COST)} to rebuild`);
+    } else if (hit) toast("Cracked it. Hit it again.");
+  }
+  function hitCrane(r) {
+    if (S.state !== "build" || S.craneH < 1 || S.craneFall > 0) return false;
+    const tower = Math.abs(r.x - CRANE_X) < 14 && r.y > JIB_Y - 40 && r.y < GROUND;
+    const jib = Math.abs(r.y - (JIB_Y - 5)) < 12 && r.x > 1030 && r.x < CRANE_X + 95;
+    if (!tower && !jib) return false;
+    S.halt = 4; S.craneShake = 1; S.stats.craneHits++; S.stats.hits++;
+    sparks(r.x, r.y, 18); dust(r.x, r.y, 4, 0.8); shake(0.5);
+    Sfx.clang(r.x);
+    toast("Crane jammed · work halted 4 s");
+    return true;
+  }
+
+  // ---------- Update ----------
+  function update(dt) {
+    S.time += dt; S.st += dt;
+    for (const c of S.clouds) { c.x += (c.v + S.wind * 0.15) * dt; if (c.x > W + 200) c.x = -200; if (c.x < -220) c.x = W + 180; }
+
+    if (S.state === "idyll" && S.st > 4.5) setState("build");
+    if (S.state === "build") updBuild(dt);
+    if (S.state === "collapse") updCollapse(dt);
+    if (S.state === "restore" || S.state === "won") updRestore(dt);
+    if (S.state === "complete" || S.state === "lost") updComplete(dt);
+
+    updTrees(dt); updAnimals(dt); updCritters(dt); updEquipment(dt);
+
+    S.cols.forEach((col, c) => {
+      for (const b of col) {
+        if (b.flash > 0) b.flash -= dt;
+        if (b.fall > 0) {
+          b.fv += 1700 * dt; b.fall -= b.fv * dt;
+          if (b.fall <= 0) { if (b.fv > 300) Sfx.clank(BX + c * BW); b.fall = 0; b.fv = 0; }
+        }
+      }
+    });
+    if (S.craneShake > 0) S.craneShake -= dt * 0.6;
+
+    // trebuchet arm
+    const A = S.arm;
+    if (A.mode === "swing") {
+      A.t += dt / 0.3; A.a = lerp(REST, RELEASE, easeIn(Math.min(1, A.t)));
+      if (A.t >= 1) { launch(); A.mode = "recover"; A.t = 0; }
+    } else if (A.mode === "recover") {
+      A.t += dt;
+      if (A.t < 0.25) A.a = RELEASE + Math.sin((A.t / 0.25) * Math.PI) * 0.18;
+      else {
+        const u = clamp((A.t - 0.25) / 1.15); A.a = lerp(RELEASE, REST, easeInOut(u));
+        if (u >= 1) { A.mode = "rest"; A.a = REST; S.loaded = true; S.wind = (Math.random() * 2 - 1) * S.diff.wind; }
+      }
+    }
+
+    // rocks
+    for (let k = S.rocks.length - 1; k >= 0; k--) {
+      const r = S.rocks[k]; let dead = false;
+      for (let s = 0; s < 3 && !dead; s++) {
+        const h = dt / 3;
+        r.vx += r.wind * h; r.vy += GRAV * h; r.x += r.vx * h; r.y += r.vy * h; r.rot += r.vx * h * 0.02;
+        if (hitCrane(r)) dead = true;
+        else if (blockAt(r.x + 10, r.y) || blockAt(r.x, r.y + 10)) { impact(r.x, r.y); dead = true; }
+        else if (r.y >= GROUND + 6) { impact(r.x, GROUND + 6); dead = true; }
+        else if (r.x > W + 150) dead = true;
+      }
+      r.trail.push([r.x, r.y]); if (r.trail.length > 14) r.trail.shift();
+      if (dead) S.rocks.splice(k, 1);
+    }
+
+    // particles
+    for (let k = S.particles.length - 1; k >= 0; k--) {
+      const p = S.particles[k];
+      p.life -= dt;
+      if (p.type === "chunk") {
+        p.vy += 1400 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+        if (p.y > p.gy) { p.y = p.gy; p.vy *= -0.3; p.vx *= 0.55; p.vr *= 0.5; }
+      } else if (p.type === "dust") { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.97; p.r += dt * 28; }
+      else if (p.type === "spark") { p.vy += 600 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+      else if (p.type === "leaf") { p.x += (p.vx + Math.sin(S.time * 3 + p.seed) * 30) * dt; p.y += p.vy * dt; }
+      else if (p.type === "steam") { p.y += p.vy * dt; p.x += (p.vx + S.wind * 0.3) * dt; p.r += dt * 16; }
+      if (p.life <= 0) S.particles.splice(k, 1);
+    }
+    for (let k = S.decals.length - 1; k >= 0; k--) { S.decals[k].life -= dt; if (S.decals[k].life <= 0) S.decals.splice(k, 1); }
+    S.shake = Math.max(0, S.shake - dt * 2.2);
+  }
+
+  function updBuild(dt) {
+    S.bt += dt;
+    S.dirtA = clamp(S.dirtA + dt / 5);
+    S.fenceA = clamp((S.bt - 2) / 2);
+    S.craneH = easeOut(clamp((S.bt - 1.5) / 3));
+    S.foundationA = clamp((S.bt - 3) / 1.5);
+    const target = BX + nextCol() * BW + BW / 2;
+    S.trolleyX += clamp(target - S.trolleyX, -420 * dt, 420 * dt);
+    if (S.halt > 0) S.halt -= dt;
+    else if (S.bt > 4.5) {
+      S.buildAcc += dt;
+      if (S.buildAcc >= S.diff.build) { S.buildAcc = 0; placeBlock(); }
+    }
+    const st = standing(), p = st / N;
+    S.maxP = Math.max(S.maxP, p);
+    S.dryness += (clamp((S.maxP - 0.12) / 0.3) - S.dryness) * Math.min(1, dt * 1.5);
+    S.haze += (S.maxP * 0.9 - S.haze) * Math.min(1, dt);
+    const beats = [
+      [0.12, "Foundations poured for Data Hall A"],
+      [0.3, "Cedar Creek diverted into a culvert"],
+      [0.5, "Server racks going in. Nobody asked the deer."],
+      [0.75, "Substation energized: 140 MW on order"],
+      [0.9, "Commissioning begins. Last chance."],
+    ];
+    for (const [th, txt] of beats) if (S.maxP >= th && !S.said.has(th)) { S.said.add(th); caption(txt); }
+    if (S.budget / S.budget0 < 0.2 && !S.said.has("budget")) { S.said.add("budget"); caption("The investors are getting nervous"); }
+    $("budgetMeter").classList.toggle("low", S.budget / S.budget0 < 0.2);
+    if (st >= N) setState("complete");
+    else if (S.budget < COST) setState("collapse");
+  }
+
+  let collapseAcc = 0;
+  function updCollapse(dt) {
+    collapseAcc += dt;
+    if (collapseAcc > 0.07) {
+      collapseAcc = 0;
+      const n = Math.ceil(standing() / 12) + 1;
+      for (let k = 0; k < n; k++) {
+        const nonEmpty = S.cols.map((c, i) => i).filter((i) => S.cols[i].length);
+        if (!nonEmpty.length) break;
+        const c = nonEmpty[(Math.random() * nonEmpty.length) | 0], col = S.cols[c], i = col.length - 1;
+        chunks(BX + c * BW + BW / 2, GROUND - (i + 0.5) * BH, 7);
+        if (Math.random() < 0.4) dust(BX + c * BW + BW / 2, GROUND - 10, 2, 1.4);
+        col.pop(); S.rubble[c] = Math.min(S.rubble[c] + 4, 38); shake(0.35);
+      }
+    }
+    S.craneFall = easeIn(clamp((S.st - 0.3) / 1.4)) * 1.38;
+    if (S.craneFall >= 1.38 && !S.craneLanded) { S.craneLanded = true; shake(1); dust(CRANE_X + 300, GROUND, 14, 1.6); Sfx.crash(CRANE_X); }
+    if (S.st > 2.8 && standing() === 0) setState("restore");
+  }
+
+  function updRestore(dt) {
+    const t = S.state === "won" ? 99 : S.st;
+    S.dirtA = clamp(S.dirtA - dt / 3.5);
+    S.fenceA = clamp(S.fenceA - dt / 1.5);
+    S.foundationA = clamp(S.foundationA - dt / 2.5);
+    S.craneA = clamp(S.craneA - dt / 2);
+    S.dryness = clamp(S.dryness - dt / 3);
+    S.haze = clamp(S.haze - dt / 4);
+    for (let c = 0; c < COLS; c++) S.rubble[c] = Math.max(0, S.rubble[c] - dt * 7);
+    S.trees.forEach((tr, i) => {
+      if (tr.state === "stump" && tr.regrowAt < 0) tr.regrowAt = 0.6 + Math.random() * 4;
+      if (tr.state === "stump" && t > tr.regrowAt) { tr.state = "alive"; tr.grow = 0; leaves(tr.x, tr.y - 10, 5); }
+    });
+    S.animals.forEach((a, i) => {
+      if (a.mode === "gone" && t > 1.5 + i * 0.45) {
+        a.mode = "return";
+        if (a.kind === "heron") { a.x = a.exit > 0 ? W + 80 : -80; a.y = a.homeY - 380; }
+        else { a.x = a.exit > 0 ? W + 60 : -60; a.y = a.homeY; }
+      }
+    });
+    if (S.flock.mode === "gone" && t > 2.5) { S.flock.mode = "return"; S.flock.cx = -200; S.flock.cy = 90; }
+    for (const b of S.butterflies) b.a = clamp(b.a + dt / 3);
+    if (S.state === "restore" && S.st > 9) setState("won");
+  }
+
+  function updComplete(dt) {
+    S.completeT += dt;
+    S.night = clamp(S.completeT / 3.5) * 0.92;
+    S.haze = clamp(S.haze + dt * 0.2);
+    S.dryness = clamp(S.dryness + dt / 2);
+    S.craneA = clamp(1 - (S.completeT - 1) / 2);
+    S.dirtA = 1; S.fenceA = 1;
+    if (Math.random() < dt * 14)
+      addP({ type: "steam", x: BX + rand(10, COLS * BW - 10), y: GROUND - ROWS * BH - 22, vx: rand(-6, 6), vy: rand(-45, -25), r: rand(6, 12), life: rand(2, 3.4), max: 3.4 });
+    if (S.state === "complete" && S.st > 5) setState("lost");
+  }
+
+  function updTrees(dt) {
+    for (const t of S.trees) {
+      if (t.state === "alive" && t.grow >= 1) {
+        let cut = false;
+        if (S.state === "build") cut = t.site ? S.bt > t.clearT : S.maxP >= t.cutAt;
+        if (S.state === "complete") cut = t.cutAt < 2 && S.st > (t.cutAt - 0.3) * 3;
+        if (cut) { t.state = "falling"; t.fallT = 0; leaves(t.x, t.y - 50 * depthK(t.y) * t.s, 10); Sfx.chainsaw(t.x); }
+      }
+      if (t.state === "falling") {
+        t.fallT += dt * 1.3;
+        if (t.fallT >= 1) { t.state = "stump"; t.log = 1; dust(t.x + t.dir * 50 * depthK(t.y), t.y, 4, 0.7); shake(0.12); Sfx.treeFall(t.x); }
+      }
+      if (t.state === "stump" && t.log > 0 && S.fenceA > 0.3) t.log = Math.max(0, t.log - dt * 0.15);
+      if (t.state === "alive" && t.grow < 1) t.grow = Math.min(1, t.grow + dt / 1.8);
+    }
+  }
+
+  function fleeTrigger(a) {
+    if (S.state === "build") return a.fleeAt === 0 ? S.bt > 1.3 + (1600 - a.homeX) * 0.004 : S.maxP >= a.fleeAt;
+    return S.state === "complete";
+  }
+  function updAnimals(dt) {
+    for (const a of S.animals) {
+      const walk = a.kind === "deer" ? 18 : a.kind === "fox" ? 24 : 16;
+      const run = a.kind === "deer" ? 300 : a.kind === "fox" ? 270 : 240;
+      a.phase += dt * (a.moving ? (a.mode === "flee" ? 16 : 8) : 1.5);
+      if (a.jump > 0) a.jump = Math.max(0, a.jump - dt * 2.5);
+      if (a.kind === "heron") { updHeron(a, dt); continue; }
+      if (a.mode === "home") {
+        a.t -= dt;
+        if (a.t <= 0) { a.tx = a.homeX + (Math.random() - 0.5) * 90; a.t = 2 + Math.random() * 4; }
+        const d = a.tx - a.x;
+        if (Math.abs(d) > 3) { a.dir = Math.sign(d); a.x += a.dir * walk * dt; a.moving = true; } else a.moving = false;
+        if (fleeTrigger(a)) { a.mode = "flee"; a.jump = 1; }
+      } else if (a.mode === "flee") {
+        a.dir = a.exit; a.x += a.dir * run * dt; a.moving = true;
+        if (a.x < -90 || a.x > W + 90) a.mode = "gone";
+      } else if (a.mode === "return") {
+        const d = a.homeX - a.x; a.dir = Math.sign(d) || 1; a.moving = true;
+        a.x += a.dir * Math.min(Math.abs(d), walk * 4 * dt);
+        if (Math.abs(d) < 4) { a.mode = "home"; a.t = 1; a.tx = a.x; }
+      }
+    }
+  }
+  function updHeron(a, dt) {
+    if (a.mode === "home") {
+      a.moving = false; a.y = a.homeY;
+      if (fleeTrigger(a)) a.mode = "flee";
+    } else if (a.mode === "flee") {
+      a.dir = a.exit; a.x += a.dir * 170 * dt; a.y -= 110 * dt;
+      if (a.y < -60 || a.x < -90 || a.x > W + 90) a.mode = "gone";
+    } else if (a.mode === "return") {
+      const dx = a.homeX - a.x, dy = a.homeY - a.y, d = Math.hypot(dx, dy);
+      a.dir = Math.sign(dx) || 1;
+      if (d < 6) { a.mode = "home"; a.x = a.homeX; a.y = a.homeY; }
+      else { const sp = Math.min(d, 190 * dt); a.x += (dx / d) * sp; a.y += (dy / d) * sp; }
+    }
+  }
+  function updCritters(dt) {
+    const f = S.flock;
+    const hx = 640 + Math.sin(S.time * 0.18) * 240, hy = 210 + Math.cos(S.time * 0.3) * 40;
+    if (f.mode === "home") {
+      f.cx += (hx - f.cx) * Math.min(1, dt * 0.8); f.cy += (hy - f.cy) * Math.min(1, dt * 0.8);
+      if ((S.state === "build" && S.maxP >= 0.2) || S.state === "complete") f.mode = "flee";
+    } else if (f.mode === "flee") {
+      f.cx -= 260 * dt; f.cy -= 90 * dt; if (f.cx < -260) f.mode = "gone";
+    } else if (f.mode === "return") {
+      f.cx += (hx - f.cx) * Math.min(1, dt * 0.7); f.cy += (hy - f.cy) * Math.min(1, dt * 0.7);
+      if (Math.abs(hx - f.cx) < 20) f.mode = "home";
+    }
+    for (const b of f.birds) b.ph += dt * 9;
+    for (const b of S.butterflies) {
+      b.ph += dt;
+      if ((S.state === "build" && S.maxP >= b.fleeAt) || S.state === "complete") b.a = Math.max(0, b.a - dt / 1.5);
+    }
+    // fish jumps
+    if (S.dryness < 0.25) {
+      S.fishT -= dt;
+      if (S.fishT <= 0) {
+        S.fishT = rand(1.4, 3.8);
+        const y = HORIZON + rand(0.45, 0.95) * 300, s = streamAt(y);
+        S.fish.push({ x: s.x + rand(-s.w * 0.25, s.w * 0.25), y, t: 0, dir: Math.random() < 0.5 ? -1 : 1 });
+      }
+    }
+    for (let k = S.fish.length - 1; k >= 0; k--) { S.fish[k].t += dt / 0.75; if (S.fish[k].t >= 1) S.fish.splice(k, 1); }
+  }
+  function updEquipment(dt) {
+    const leaving = S.state === "collapse" || S.state === "restore" || S.state === "won";
+    const dz = S.dozer;
+    if (dz.active) {
+      if (leaving) { dz.dir = 1; dz.x += 320 * dt; if (dz.x > W + 200) dz.active = false; }
+      else if (S.state === "build") {
+        dz.x += dz.dir * 95 * dt;
+        if (dz.x < 1030) dz.dir = 1;
+        if (dz.x > 1570) dz.dir = -1;
+      }
+    }
+    const tk = S.truck;
+    if (S.state === "build") {
+      if (tk.state === "wait") { tk.t -= dt; if (tk.t <= 0) { tk.state = "in"; tk.x = W + 150; } }
+      else if (tk.state === "in") { tk.x -= 170 * dt; if (tk.x <= 1500) { tk.state = "unload"; tk.t = 2.4; } }
+      else if (tk.state === "unload") { tk.t -= dt; tk.tilt = Math.sin(clamp(1 - tk.t / 2.4) * Math.PI) * 0.5; if (tk.t <= 0) { tk.state = "out"; tk.tilt = 0; } }
+      else if (tk.state === "out") { tk.x += 190 * dt; if (tk.x > W + 150) { tk.state = "wait"; tk.t = rand(4, 7); } }
+    } else if (leaving && tk.state !== "wait") { tk.tilt = 0; tk.x += 340 * dt; if (tk.x > W + 200) tk.state = "wait"; }
+    for (const w of S.workers) {
+      w.ph += dt * 8;
+      if (S.state === "build" && S.bt > 2) {
+        w.t -= dt;
+        if (w.t <= 0) { w.tx = rand(1040, 1500); w.t = rand(2, 5); }
+        const d = w.tx - w.x; if (Math.abs(d) > 2) { w.dir = Math.sign(d); w.x += w.dir * 50 * dt; }
+      } else if (leaving) { w.dir = 1; w.x += 170 * dt; }
+    }
+  }
+
+  // ---------- Draw ----------
+  function draw() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#121813"; ctx.fillRect(0, 0, cv.width, cv.height);
+    const k = scale * dpr, sx = (Math.random() - 0.5) * S.shake * 16, sy = (Math.random() - 0.5) * S.shake * 12;
+    ctx.setTransform(k, 0, 0, k, sx * k, sy * k);
+
+    drawSky(); drawLand(); drawStream(); drawTufts(); drawDecals();
+
+    const objs = [];
+    for (const t of S.trees) objs.push([t.y, () => drawTree(t)]);
+    for (const a of S.animals) if (a.mode !== "gone" && !(a.kind === "heron" && a.mode !== "home")) objs.push([a.y, () => drawAnimal(a)]);
+    objs.push([GROUND + 6, drawTrebuchet]);
+    objs.push([GROUND - 1, drawBuilding]);
+    objs.push([GROUND - 8, drawCrane]);
+    objs.push([GROUND + 12, drawRubble]);
+    if (S.dozer.active) objs.push([812, drawDozer]);
+    if (S.truck.state !== "wait") objs.push([848, drawTruck]);
+    for (const w of S.workers) if (w.x < W + 40) objs.push([800, () => drawWorker(w)]);
+    if (S.fenceA > 0) objs.push([846, drawFence]);
+    objs.sort((a, b) => a[0] - b[0]);
+    for (const o of objs) o[1]();
+
+    for (const a of S.animals) if (a.kind === "heron" && a.mode !== "home" && a.mode !== "gone") drawAnimal(a);
+    drawFish(); drawBirds(); drawButterflies();
+    drawRocks(); drawParticles(); drawAim();
+    if (S.night > 0) drawNightLights();
+  }
+
+  function drawSky() {
+    const g = ctx.createLinearGradient(0, 0, 0, HORIZON);
+    g.addColorStop(0, T("#7fb8d0", 1, 0.9)); g.addColorStop(1, T("#ede6c8", 1.1, 0.85));
+    ctx.fillStyle = g; ctx.fillRect(-40, -40, W + 80, HORIZON + 40);
+    if (S.night > 0.05) {
+      for (const s of stars) {
+        ctx.globalAlpha = S.night * (0.5 + 0.5 * Math.sin(S.time * 2 + s.p));
+        ctx.fillStyle = "#fffbe8"; ctx.fillRect(s.x, s.y, s.s, s.s);
+      }
+      ctx.globalAlpha = S.night; ctx.fillStyle = "#f1eed8"; ell(360, 130, 26, 26);
+      ctx.fillStyle = T("#7fb8d0", 1, 0.9); ell(372, 122, 22, 22);
+      ctx.globalAlpha = 1;
+    }
+    const sunY = 150 + S.night * 380;
+    ctx.globalAlpha = 1 - S.night;
+    const sg = ctx.createRadialGradient(1220, sunY, 10, 1220, sunY, 150);
+    sg.addColorStop(0, "rgba(255,244,200,.9)"); sg.addColorStop(1, "rgba(255,244,200,0)");
+    ctx.fillStyle = sg; ctx.fillRect(1060, sunY - 150, 320, 300);
+    ctx.fillStyle = S.haze > 0.4 ? "#f4d7a2" : "#fff5cf"; ell(1220, sunY, 38, 38);
+    ctx.globalAlpha = 1;
+    for (const c of S.clouds) {
+      ctx.fillStyle = T("#ffffff", 1.4, 0.8); ctx.globalAlpha = 0.85;
+      ell(c.x, c.y, 60 * c.s, 18 * c.s); ell(c.x - 34 * c.s, c.y + 4, 36 * c.s, 13 * c.s);
+      ell(c.x + 30 * c.s, c.y - 10 * c.s, 38 * c.s, 20 * c.s); ell(c.x + 58 * c.s, c.y + 4, 30 * c.s, 11 * c.s);
+    }
+    ctx.globalAlpha = 1;
+  }
+  function hills(pts, color) {
+    ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(-40, HORIZON + 4);
+    for (const [x, y] of pts) ctx.lineTo(x, y);
+    ctx.lineTo(W + 40, HORIZON + 4); ctx.closePath(); ctx.fill();
+  }
+  function drawLand() {
+    hills(farHills, T("#a3bfb3")); hills(nearHills, T("#72997f"));
+    if (S.haze > 0.02) {
+      const g = ctx.createLinearGradient(0, HORIZON - 200, 0, HORIZON);
+      g.addColorStop(0, "rgba(196,168,120,0)"); g.addColorStop(1, `rgba(196,168,120,${0.45 * S.haze * (1 - S.night)})`);
+      ctx.fillStyle = g; ctx.fillRect(0, HORIZON - 200, W, 200);
+    }
+    ctx.fillStyle = T("#4b744d");
+    for (const [x, h] of treeline) ell(x, HORIZON + 2, 9, h);
+    const g = ctx.createLinearGradient(0, HORIZON, 0, H);
+    g.addColorStop(0, T("#9cc06a")); g.addColorStop(1, T("#5a8a3c"));
+    ctx.fillStyle = g; ctx.fillRect(-40, HORIZON, W + 80, H - HORIZON + 40);
+    if (S.dirtA > 0) {
+      ctx.globalAlpha = S.dirtA;
+      ctx.fillStyle = T("#a7865d", 0.3);
+      ctx.beginPath(); ctx.moveTo(990, 885);
+      ctx.bezierCurveTo(960, 770, 1010, 690, 1110, 655);
+      ctx.bezierCurveTo(1250, 630, 1480, 640, 1640, 628);
+      ctx.lineTo(1640, 905); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = T("#8a6c48", 0.3); ctx.lineWidth = 3;
+      for (let i = 0; i < 6; i++) { ctx.setLineDash([10, 8]); line(1030 + i * 20, 872 - i * 8, 1600, 850 - i * 30); }
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+  }
+  function drawStream() {
+    const d = S.dryness, wf = 1 - d * 0.55;
+    ctx.beginPath();
+    for (let i = 0; i < streamL.length; i++) { const [, y, cx, w] = streamL[i]; ctx.lineTo(cx - (w * wf) / 2, y); }
+    for (let i = streamL.length - 1; i >= 0; i--) { const [, y, cx, w] = streamL[i]; ctx.lineTo(cx + (w * wf) / 2, y); }
+    ctx.closePath();
+    const A = rgb("#4fa3b8"), B = rgb("#8c7156");
+    const c = "#" + [0, 1, 2].map((i) => Math.round(lerp(A[i], B[i], d)).toString(16).padStart(2, "0")).join("");
+    ctx.fillStyle = T(c, 0.5); ctx.fill();
+    ctx.strokeStyle = T("#3d6a45"); ctx.lineWidth = 2; ctx.stroke();
+    if (d < 0.85) {
+      ctx.strokeStyle = `rgba(230,248,255,${0.55 * (1 - d) * (1 - S.night)})`; ctx.lineWidth = 1.5;
+      for (let i = 0; i < 26; i++) {
+        const t = (i / 26 + S.time * 0.035) % 1, y = HORIZON + t * 300, s = streamAt(y);
+        const off = Math.sin(i * 12.9) * s.w * 0.25 * wf, len = 3 + t * 12;
+        line(s.x + off - len, y, s.x + off + len * 0.3, y + len * 0.5);
+      }
+    } else {
+      ctx.strokeStyle = T("#6a553f", 0.4); ctx.lineWidth = 1;
+      for (let i = 0; i < 18; i++) {
+        const y = HORIZON + 40 + i * 14, s = streamAt(y);
+        line(s.x - 8, y, s.x + 4, y + 4); line(s.x + 4, y + 4, s.x + 10, y - 2);
+      }
+    }
+    if (d > 0.15) {
+      ctx.globalAlpha = clamp((d - 0.15) * 3);
+      const s = streamAt(682);
+      ctx.fillStyle = TN("#9a9d97"); ctx.fillRect(s.x - 22, 668, 44, 22);
+      ctx.fillStyle = TN("#2d302c"); ell(s.x, 682, 15, 9);
+      ctx.globalAlpha = 1;
+    }
+  }
+  function drawTufts() {
+    ctx.lineWidth = 1.4;
+    for (const t of tufts) {
+      let a = 1;
+      if (t.x > 990 && t.y > 640) a *= 1 - S.dirtA;
+      if (a < 0.05) continue;
+      ctx.globalAlpha = a;
+      const k = depthK(t.y);
+      ctx.strokeStyle = T("#4f7f37");
+      line(t.x, t.y, t.x - 3 * k, t.y - t.h * k); line(t.x, t.y, t.x + 1, t.y - t.h * 1.3 * k); line(t.x, t.y, t.x + 3 * k, t.y - t.h * k);
+      if (t.f && S.haze < 0.8) { ctx.globalAlpha = a * (1 - S.haze); ctx.fillStyle = t.f; ell(t.x + 1, t.y - t.h * 1.3 * k, 2.2 * k, 2.2 * k); }
+    }
+    ctx.globalAlpha = 1;
+  }
+  function drawDecals() {
+    for (const d of S.decals) {
+      ctx.globalAlpha = clamp(d.life / 2);
+      if (d.kind === "crater") { ctx.fillStyle = "rgba(60,45,30,.35)"; ell(d.x, d.y, 26, 6); }
+      else { ctx.fillStyle = TN("#7d7468"); ell(d.x, d.y - 6, 10, 8); }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawTree(t) {
+    const k = depthK(t.y) * t.s;
+    ctx.save(); ctx.translate(t.x, t.y);
+    if (t.state === "stump" || (t.state === "alive" && t.grow < 1)) {
+      ctx.globalAlpha = t.state === "stump" ? 1 : 1 - t.grow;
+      ctx.fillStyle = T("#6d4c30"); ctx.fillRect(-5 * k, -8 * k, 10 * k, 8 * k);
+      ctx.fillStyle = T("#c9a77a"); ell(0, -8 * k, 5 * k, 2 * k);
+      if (t.log > 0) {
+        ctx.globalAlpha = t.log * ctx.globalAlpha;
+        ctx.fillStyle = T("#5e4128"); ctx.fillRect(t.dir > 0 ? 8 * k : -62 * k, -7 * k, 54 * k, 7 * k);
+        ctx.fillStyle = T("#c9a77a"); ell(t.dir > 0 ? 8 * k : -8 * k, -3.5 * k, 2.5 * k, 3.5 * k);
+      }
+      ctx.globalAlpha = 1;
+      if (t.state === "stump") { ctx.restore(); return; }
+    }
+    if (t.state === "falling") ctx.rotate(t.dir * easeIn(t.fallT) * Math.PI * 0.49);
+    const g = t.state === "alive" ? easeOut(t.grow) : 1;
+    ctx.scale(g, g);
+    const sway = t.state === "alive" ? Math.sin(S.time * 0.8 + t.sway) * 0.015 : 0;
+    ctx.rotate(sway);
+    if (t.kind === "pine") {
+      ctx.fillStyle = T("#5b3f28"); ctx.fillRect(-3 * k, -18 * k, 6 * k, 18 * k);
+      for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = T(i % 2 ? "#3a6b44" : "#2f5d3a", 0.8);
+        const by = -12 * k - i * 20 * k, w = (36 - i * 9) * k;
+        ctx.beginPath(); ctx.moveTo(-w, by); ctx.lineTo(0, by - 36 * k); ctx.lineTo(w, by); ctx.closePath(); ctx.fill();
+      }
+    } else {
+      ctx.fillStyle = T("#5e4128"); ctx.fillRect(-4 * k, -30 * k, 8 * k, 30 * k);
+      ctx.fillStyle = T("#4a7a3a", 0.8);
+      ell(0, -54 * k, 25 * k, 22 * k); ell(-18 * k, -42 * k, 16 * k, 14 * k); ell(18 * k, -44 * k, 17 * k, 15 * k); ell(0, -70 * k, 16 * k, 13 * k);
+      ctx.fillStyle = T("#6a9e4c", 0.8);
+      ell(-7 * k, -60 * k, 12 * k, 10 * k); ell(10 * k, -50 * k, 8 * k, 7 * k);
+    }
+    ctx.restore();
+  }
+
+  function drawAnimal(a) {
+    const k = depthK(a.homeY) * (a.fawn ? 0.66 : 1);
+    ctx.save();
+    let jy = a.jump > 0 ? -Math.sin(a.jump * Math.PI) * 14 : 0;
+    ctx.translate(a.x, a.y + jy);
+    ctx.scale(a.dir * k, k);
+    const ph = a.phase, mv = a.moving;
+    if (a.kind === "deer") {
+      ctx.strokeStyle = T("#5a3a26"); ctx.lineWidth = 3; ctx.lineCap = "round";
+      [-16, -10, 12, 18].forEach((lx, i) => {
+        const sw = mv ? Math.sin(ph + (i % 2 ? Math.PI : 0) + (i > 1 ? 1 : 0)) * 0.55 : 0;
+        line(lx, -24, lx + Math.sin(sw) * 12, -2 + Math.abs(Math.sin(sw)) * -3);
+      });
+      ctx.fillStyle = T("#9a6a45"); ell(0, -32, 24, 11);
+      if (a.fawn) { ctx.fillStyle = T("#e8d8c0"); for (let i = 0; i < 5; i++) ell(-12 + i * 6, -35 + (i % 2) * 4, 1.8, 1.8); }
+      ctx.fillStyle = T("#f2ece0"); ell(-24, -36, 4, 5);
+      const graze = !mv && a.mode === "home" && Math.sin(S.time * 0.45 + a.homeX) > 0.1;
+      const hx = graze ? 30 : 30, hy = graze ? -12 : -62;
+      ctx.strokeStyle = T("#9a6a45"); ctx.lineWidth = 7; line(16, -38, hx - 4, hy + 4);
+      ctx.fillStyle = T("#8a5c3b"); ell(hx, hy, 9, 5, graze ? 0.9 : 0.2);
+      ctx.fillStyle = T("#9a6a45"); ell(hx - 6, hy - 6, 2.5, 5, -0.5);
+      if (a.buck) {
+        ctx.strokeStyle = T("#d6c4a3"); ctx.lineWidth = 1.8;
+        line(hx - 2, hy - 4, hx - 8, hy - 20); line(hx - 6, hy - 14, hx + 2, hy - 20); line(hx - 8, hy - 20, hx - 14, hy - 24);
+      }
+    } else if (a.kind === "rabbit") {
+      if (mv) ctx.translate(0, -Math.abs(Math.sin(ph * 0.7)) * 10);
+      ctx.fillStyle = T("#9c8b78"); ell(0, -7, 9, 7); ell(7, -12, 5, 5);
+      ell(5, -21, 2, 6, -0.25); ell(8.5, -21, 2, 6, 0.15);
+      ctx.fillStyle = T("#f5f0e6"); ell(-9, -8, 3, 3);
+      ctx.fillStyle = "#1c1c1c"; ell(9, -13, 1, 1);
+    } else if (a.kind === "fox") {
+      ctx.strokeStyle = T("#3a2418"); ctx.lineWidth = 2.5; ctx.lineCap = "round";
+      [-11, -6, 8, 13].forEach((lx, i) => { const sw = mv ? Math.sin(ph + (i % 2 ? Math.PI : 0)) * 6 : 0; line(lx, -10, lx + sw, 0); });
+      ctx.fillStyle = T("#d0702c"); ell(0, -14, 17, 7);
+      ell(-23, -17 + Math.sin(ph) * 1.5, 13, 5, 0.35);
+      ctx.fillStyle = T("#f5efe4"); ell(-33, -21, 4, 3, 0.35); ell(10, -11, 6, 3);
+      ctx.fillStyle = T("#d0702c"); ell(17, -20, 7, 5);
+      ctx.beginPath(); ctx.moveTo(20, -22); ctx.lineTo(29, -18); ctx.lineTo(20, -16); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(13, -23); ctx.lineTo(15, -31); ctx.lineTo(18, -24); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(17, -24); ctx.lineTo(21, -31); ctx.lineTo(22, -23); ctx.fill();
+      ctx.fillStyle = "#1c1c1c"; ell(29, -18, 1.5, 1.5);
+    } else if (a.kind === "heron") {
+      const flying = a.mode !== "home";
+      ctx.strokeStyle = T("#4d5a60"); ctx.lineWidth = 2; ctx.lineCap = "round";
+      if (!flying) {
+        line(-2, 0, -1, -30); line(4, 0, 3, -30);
+        ctx.fillStyle = T("#8fa3ad"); ell(0, -40, 16, 8, -0.3);
+        ctx.fillStyle = T("#5c6e78"); ell(-4, -40, 11, 5, -0.3);
+        ctx.strokeStyle = T("#b8c6cc"); ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(10, -46); ctx.quadraticCurveTo(2, -64, 14, -72); ctx.stroke();
+        ctx.fillStyle = T("#b8c6cc"); ell(16, -73, 4.5, 3.5);
+        ctx.strokeStyle = T("#d9a441"); ctx.lineWidth = 2; line(19, -73, 32, -70);
+      } else {
+        const flap = Math.sin(S.time * 8) * 14;
+        ctx.fillStyle = T("#8fa3ad"); ell(0, 0, 18, 6);
+        ctx.fillStyle = T("#5c6e78");
+        ctx.beginPath(); ctx.moveTo(-8, -2); ctx.lineTo(4, -30 - flap); ctx.lineTo(10, -2); ctx.fill();
+        ctx.strokeStyle = T("#4d5a60"); line(-18, 0, -36, 3);
+        ctx.fillStyle = T("#b8c6cc"); ell(18, -3, 5, 4);
+        ctx.strokeStyle = T("#d9a441"); line(22, -3, 34, -1);
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawTrebuchet() {
+    const base = GROUND + 6, a = S.arm.a;
+    ctx.save();
+    ctx.lineCap = "round";
+    // ammo pile
+    ctx.fillStyle = TN("#7d7468");
+    [[292, 0], [310, 1], [326, 0], [301, -12], [318, -11], [310, -22]].forEach(([x, dy]) => ell(x, base - 8 + dy, 10, 8));
+    ctx.fillStyle = TN("#9b9285"); [[288, -3], [306, -15]].forEach(([x, dy]) => ell(x, base - 10 + dy, 3, 2));
+    // base
+    ctx.fillStyle = TN("#4a321c"); ctx.fillRect(TX - 100, base - 36, 200, 14);
+    ctx.fillStyle = TN("#3a2716"); ell(TX - 72, base - 13, 14, 14); ell(TX + 72, base - 13, 14, 14);
+    ctx.fillStyle = TN("#8a6a45"); ell(TX - 72, base - 13, 4, 4); ell(TX + 72, base - 13, 4, 4);
+    ctx.strokeStyle = TN("#6b4a2b"); ctx.lineWidth = 11;
+    line(TX - 60, base - 30, TX - 4, TPY); line(TX + 60, base - 30, TX + 4, TPY);
+    ctx.lineWidth = 6; line(TX - 38, base - 90, TX + 38, base - 90);
+    // arm
+    const cx = Math.cos(a), sy = Math.sin(a);
+    const tipX = TX + cx * ARM, tipY = TPY + sy * ARM, backX = TX - cx * ARM_S, backY = TPY - sy * ARM_S;
+    ctx.strokeStyle = TN("#7a5634"); ctx.lineWidth = 10; line(backX, backY, tipX, tipY);
+    // counterweight
+    ctx.strokeStyle = TN("#3a2716"); ctx.lineWidth = 2; line(backX, backY, backX, backY + 16);
+    ctx.fillStyle = TN("#5b5750"); ctx.fillRect(backX - 24, backY + 14, 48, 40);
+    ctx.strokeStyle = TN("#3e3b36"); ctx.lineWidth = 2; ctx.strokeRect(backX - 24, backY + 14, 48, 40);
+    line(backX - 24, backY + 34, backX + 24, backY + 34);
+    ctx.fillStyle = TN("#2b2118"); ell(TX, TPY, 6, 6);
+    // sling + rock
+    const t = S.arm.mode === "swing" ? clamp(S.arm.t) : 0;
+    if (S.arm.mode !== "recover") {
+      const off = -0.32 * Math.PI * (1 - t);
+      let rx = tipX + Math.cos(a + off) * SLING, ry = tipY + Math.sin(a + off) * SLING;
+      if (ry > base - 12) ry = base - 12;
+      ctx.strokeStyle = TN("#c9b48a"); ctx.lineWidth = 1.5; line(tipX, tipY, rx, ry);
+      drawRockAt(rx, ry, 0);
+    }
+    ctx.restore();
+  }
+
+  function drawBlock(x, y, b, c, i) {
+    ctx.fillStyle = TN((c + i) % 2 ? "#bcc0b8" : "#b1b5ad"); ctx.fillRect(x, y, BW, BH);
+    if (b.flash > 0) { ctx.fillStyle = `rgba(255,240,220,${b.flash * 3})`; ctx.fillRect(x, y, BW, BH); }
+    ctx.fillStyle = TN("#949a92");
+    for (let l = 0; l < 3; l++) ctx.fillRect(x + 5, y + 6 + l * 5, BW - 10, 2);
+    for (let q = 0; q < 4; q++) {
+      const on = Math.sin(S.time * (2 + ((c * 7 + i * 3 + q) % 5)) + c + i * 2 + q) > -0.2;
+      ctx.fillStyle = on ? "#5ce1e6" : "#2e4b4d"; ctx.fillRect(x + 6 + q * 5, y + BH - 9, 3, 3);
+    }
+    ctx.fillStyle = Math.sin(S.time * 1.3 + c * 2 + i) > 0 ? "#7cf29a" : "#2f5b3a"; ctx.fillRect(x + BW - 9, y + BH - 9, 3, 3);
+    ctx.strokeStyle = TN("#7e847d"); ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.75, y + 0.75, BW - 1.5, BH - 1.5);
+    const dmg = BLOCK_HP - b.hp;
+    if (dmg > 0 && b.cracks) {
+      ctx.strokeStyle = "rgba(38,38,36,.85)"; ctx.lineWidth = 1.3;
+      for (let d = 0; d < Math.min(3, dmg); d++) {
+        const [cx0, cy0, a1, b1, a2, b2] = b.cracks[d];
+        ctx.beginPath(); ctx.moveTo(x + cx0, y + cy0); ctx.lineTo(x + cx0 + a1, y + cy0 + b1); ctx.lineTo(x + cx0 + a1 + a2, y + cy0 + b1 + b2); ctx.stroke();
+      }
+    }
+  }
+  function drawBuilding() {
+    if (S.foundationA > 0) {
+      ctx.globalAlpha = S.foundationA;
+      ctx.fillStyle = TN("#6f746e"); ctx.fillRect(BX - 14, GROUND - 2, COLS * BW + 28, 10);
+      ctx.fillStyle = TN("#555a55"); ctx.fillRect(BX - 14, GROUND + 6, COLS * BW + 28, 3);
+      ctx.globalAlpha = 1;
+    }
+    for (let c = 0; c < COLS; c++) {
+      const col = S.cols[c];
+      for (let i = 0; i < col.length; i++) drawBlock(BX + c * BW, GROUND - (i + 1) * BH - col[i].fall, col[i], c, i);
+    }
+    if (S.completeT > 0) {
+      const top = GROUND - ROWS * BH, a = clamp(S.completeT / 1.2);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = TN("#8d928b"); ctx.fillRect(BX - 4, top - 6, COLS * BW + 8, 6);
+      for (let c = 0; c < COLS; c += 2) {
+        const x = BX + c * BW + 6;
+        ctx.fillStyle = TN("#a9aea6"); ctx.fillRect(x, top - 22, 30, 16);
+        ctx.fillStyle = TN("#3a3e3a"); ell(x + 9, top - 22, 6, 2); ell(x + 21, top - 22, 6, 2);
+      }
+      ctx.fillStyle = "#e8f6ff"; ctx.font = "600 12px 'IBM Plex Mono', monospace";
+      ctx.fillText("NIMBUS DATA · HALL A", BX + 110, top + 20);
+      ctx.globalAlpha = 1;
+    }
+  }
+  function drawRubble() {
+    for (let c = 0; c < COLS; c++) {
+      const h = S.rubble[c]; if (h < 1) continue;
+      const cx = BX + c * BW + BW / 2;
+      ctx.fillStyle = TN("#8f938c");
+      ctx.beginPath(); ctx.moveTo(cx - 34, GROUND + 12);
+      ctx.quadraticCurveTo(cx - 10, GROUND + 10 - h, cx + 4, GROUND + 12 - h * 0.8);
+      ctx.quadraticCurveTo(cx + 20, GROUND + 12 - h * 0.5, cx + 36, GROUND + 12); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = TN("#a9ada5");
+      for (let q = 0; q < 4; q++) ctx.fillRect(cx - 20 + q * 11, GROUND + 8 - (h * 0.4) * ((q % 2) + 0.5), 7, 5);
+    }
+  }
+  function drawCrane() {
+    if (S.craneH <= 0 || S.craneA <= 0) return;
+    ctx.save(); ctx.globalAlpha = S.craneA;
+    ctx.translate(CRANE_X, GROUND);
+    ctx.rotate(S.craneFall);
+    if (S.craneShake > 0) ctx.translate(Math.sin(S.time * 70) * 3 * S.craneShake, 0);
+    const top = -(GROUND - JIB_Y) * S.craneH;
+    ctx.strokeStyle = TN("#e0a526"); ctx.lineWidth = 3;
+    line(-9, 0, -9, top); line(9, 0, 9, top);
+    ctx.lineWidth = 1.5;
+    for (let y = 0; y > top + 18; y -= 18) { line(-9, y, 9, y - 18); line(-9, y - 18, 9, y - 18); }
+    if (S.craneH >= 1) {
+      const jl = 1040 - CRANE_X, jt = top - 12;
+      ctx.lineWidth = 3; line(jl, top, 95, top); line(jl + 20, jt, 95, jt);
+      ctx.lineWidth = 1.5;
+      for (let x = jl + 20; x < 95; x += 18) { line(x, top, x + 9, jt); line(x + 9, jt, x + 18, top); }
+      line(jl, top, jl + 20, jt);
+      ctx.lineWidth = 2; line(0, top - 44, jl + 60, jt); line(0, top - 44, 90, jt); line(-9, top, 0, top - 44); line(9, top, 0, top - 44);
+      ctx.fillStyle = TN("#8e928a"); ctx.fillRect(58, top - 4, 34, 24);
+      ctx.fillStyle = TN("#e0a526"); ctx.fillRect(-16, top + 2, 24, 20);
+      ctx.fillStyle = TN("#9bc6d6"); ctx.fillRect(-12, top + 6, 14, 8);
+      const blink = S.halt > 0 ? Math.sin(S.time * 18) > 0 : Math.sin(S.time * 3) > 0.6;
+      ctx.fillStyle = blink ? "#ff4b3a" : "#5a1d18"; ell(0, top - 46, 3.5, 3.5);
+      // trolley, cable, hook
+      const tx = S.trolleyX - CRANE_X, swing = S.halt > 0 ? Math.sin(S.time * 5) * 10 : Math.sin(S.time * 1.5) * 2;
+      const hookY = HOOK_Y - GROUND;
+      ctx.fillStyle = TN("#3a3e3a"); ctx.fillRect(tx - 7, top - 2, 14, 7);
+      ctx.strokeStyle = TN("#2f322f"); ctx.lineWidth = 1.2; line(tx, top + 5, tx + swing, hookY);
+      ctx.fillStyle = TN("#e0a526"); ctx.fillRect(tx + swing - 4, hookY - 2, 8, 6);
+      if (S.state === "build" && S.halt <= 0 && S.bt > 4.5 && S.buildAcc > S.diff.build * 0.35 && S.budget >= COST && standing() < N) {
+        ctx.strokeStyle = TN("#2f322f"); line(tx + swing, hookY + 4, tx + swing - 14, hookY + 12); line(tx + swing, hookY + 4, tx + swing + 14, hookY + 12);
+        drawBlock(tx + swing - BW / 2, hookY + 10, { hp: BLOCK_HP, flash: 0 }, 1, 0);
+      }
+    }
+    ctx.restore();
+  }
+  function drawDozer() {
+    const d = S.dozer, k = 1.02;
+    ctx.save(); ctx.translate(d.x, 812); ctx.scale(d.dir * -k, k);
+    ctx.fillStyle = TN("#2b2b28"); ctx.beginPath(); ctx.roundRect(-40, -16, 80, 16, 8); ctx.fill();
+    ctx.fillStyle = TN("#555"); for (let i = 0; i < 5; i++) ell(-30 + i * 15, -8, 4, 4);
+    ctx.fillStyle = TN("#f2b233"); ctx.fillRect(-30, -40, 56, 24); ctx.fillRect(-20, -64, 30, 24);
+    ctx.fillStyle = TN("#9bc6d6"); ctx.fillRect(-15, -60, 20, 12);
+    ctx.fillStyle = TN("#7a7d77"); ctx.fillRect(-52, -34, 8, 32);
+    ctx.strokeStyle = TN("#2b2b28"); ctx.lineWidth = 3; line(-44, -20, -30, -26);
+    ctx.fillStyle = TN("#2b2b28"); ctx.fillRect(18, -54, 4, 16);
+    ctx.restore();
+  }
+  function drawTruck() {
+    const t = S.truck;
+    ctx.save(); ctx.translate(t.x, 848);
+    ctx.fillStyle = TN("#2b2b28"); ell(-38, -10, 11, 11); ell(30, -10, 11, 11); ell(52, -10, 11, 11);
+    ctx.fillStyle = TN("#e2e2dc"); ctx.fillRect(-58, -48, 36, 34);
+    ctx.fillStyle = TN("#9bc6d6"); ctx.fillRect(-54, -44, 18, 14);
+    ctx.save(); ctx.translate(70, -18); ctx.rotate(-t.tilt);
+    ctx.fillStyle = TN("#c0582f"); ctx.fillRect(-88, -38, 90, 32);
+    ctx.fillStyle = TN("#8e928a"); if (t.state === "in") ell(-43, -38, 40, 9);
+    ctx.restore();
+    ctx.restore();
+  }
+  function drawWorker(w) {
+    ctx.save(); ctx.translate(w.x, 800 + (w.tx | 0) % 3 * 5);
+    ctx.scale(w.dir, 1);
+    ctx.strokeStyle = TN("#2f3a4a"); ctx.lineWidth = 3; ctx.lineCap = "round";
+    const s = Math.sin(w.ph) * 5; line(0, -12, -s, 0); line(0, -12, s, 0);
+    ctx.fillStyle = TN("#f2762e"); ctx.fillRect(-4, -26, 8, 14);
+    ctx.fillStyle = TN("#e3c09a"); ell(0, -30, 3.5, 3.5);
+    ctx.fillStyle = TN("#f2d233"); ctx.beginPath(); ctx.arc(0, -32, 4.5, Math.PI, 0); ctx.fill();
+    ctx.restore();
+  }
+  function drawFence() {
+    ctx.save(); ctx.globalAlpha = S.fenceA;
+    ctx.strokeStyle = TN("#8a8f88"); ctx.lineWidth = 3;
+    for (let x = 1010; x <= 1600; x += 34) line(x, 846, x, 806);
+    line(1010, 808, 1600, 808);
+    ctx.strokeStyle = "rgba(150,155,148,.45)"; ctx.lineWidth = 1;
+    for (let x = 1010; x < 1600; x += 9) { line(x, 846, x + 30, 810); line(x + 30, 846, x, 810); }
+    // sign board
+    ctx.fillStyle = TN("#5b4a36"); ctx.fillRect(1044, 790, 4, 62); ctx.fillRect(1206, 790, 4, 62);
+    ctx.fillStyle = TN("#f3edd8"); ctx.fillRect(1030, 772, 194, 50);
+    ctx.fillStyle = TN("#f2b233"); ctx.fillRect(1030, 772, 194, 12);
+    ctx.fillStyle = TN("#1b1f1a"); ctx.font = "700 8px 'IBM Plex Mono', monospace"; ctx.fillText("COMING SOON · PERMIT DC-4471", 1038, 781);
+    ctx.font = "700 15px 'IBM Plex Mono', monospace"; ctx.fillText("NIMBUS DATA", 1038, 802);
+    ctx.font = "600 9px 'IBM Plex Mono', monospace"; ctx.fillText("HYPERSCALE CAMPUS · 140 MW", 1038, 815);
+    ctx.restore();
+  }
+  function drawFish() {
+    for (const f of S.fish) {
+      const x = f.x + f.dir * (f.t - 0.5) * 30, y = f.y - Math.sin(f.t * Math.PI) * 34;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(f.dir * (f.t - 0.5) * 2.2); ctx.scale(f.dir, 1);
+      ctx.fillStyle = "#d9b27a"; ell(0, 0, 8, 3);
+      ctx.beginPath(); ctx.moveTo(-7, 0); ctx.lineTo(-13, -4); ctx.lineTo(-13, 4); ctx.fill();
+      ctx.restore();
+      if (f.t < 0.12 || f.t > 0.88) { ctx.fillStyle = "rgba(230,248,255,.8)"; ell(f.x + f.dir * (f.t > 0.5 ? 15 : -15), f.y, 7, 2); }
+    }
+  }
+  function drawBirds() {
+    const f = S.flock; if (f.mode === "gone") return;
+    ctx.strokeStyle = T("#2f3a36", 0.4, 0.2); ctx.lineWidth = 2; ctx.lineCap = "round";
+    for (const b of f.birds) {
+      const x = f.cx + b.ox + Math.sin(S.time + b.ph) * 8, y = f.cy + b.oy + Math.cos(S.time * 0.8 + b.ph) * 5, w = Math.sin(b.ph) * 5;
+      ctx.beginPath(); ctx.moveTo(x - 8, y - w); ctx.quadraticCurveTo(x - 3, y - 2, x, y); ctx.quadraticCurveTo(x + 3, y - 2, x + 8, y - w); ctx.stroke();
+    }
+  }
+  function drawButterflies() {
+    for (const b of S.butterflies) {
+      if (b.a <= 0) continue;
+      const x = b.hx + Math.sin(b.ph * 0.9) * 40, y = b.hy + Math.sin(b.ph * 1.7) * 18 - 20, f = Math.abs(Math.sin(b.ph * 14));
+      ctx.globalAlpha = b.a; ctx.fillStyle = b.hx % 2 < 1 ? "#f2c14e" : "#efe9ff";
+      ell(x - 3, y, 3.5 * f + 0.5, 3); ell(x + 3, y, 3.5 * f + 0.5, 3);
+    }
+    ctx.globalAlpha = 1;
+  }
+  function drawRockAt(x, y, rot) {
+    ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+    ctx.fillStyle = TN("#7d7468"); ctx.beginPath();
+    ctx.moveTo(11, 0); ctx.lineTo(6, 9); ctx.lineTo(-5, 10); ctx.lineTo(-11, 2); ctx.lineTo(-7, -9); ctx.lineTo(5, -10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = TN("#a39a8c"); ell(-2, -4, 4, 3);
+    ctx.fillStyle = TN("#5d564d"); ell(4, 4, 2.5, 2);
+    ctx.restore();
+  }
+  function drawRocks() {
+    for (const r of S.rocks) {
+      ctx.strokeStyle = "rgba(240,230,210,.35)"; ctx.lineWidth = 3; ctx.beginPath();
+      r.trail.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+      drawRockAt(r.x, r.y, r.rot);
+    }
+  }
+  function drawParticles() {
+    for (const p of S.particles) {
+      if (p.type === "chunk") {
+        ctx.globalAlpha = clamp(p.life); ctx.fillStyle = TN(p.c);
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * 0.8); ctx.restore();
+      } else if (p.type === "dust") {
+        ctx.globalAlpha = clamp(p.life / p.max) * 0.5; ctx.fillStyle = TN("#cbbd9f"); ell(p.x, p.y, p.r, p.r * 0.75);
+      } else if (p.type === "spark") {
+        ctx.globalAlpha = clamp(p.life * 3); ctx.strokeStyle = "#ffd36b"; ctx.lineWidth = 2; line(p.x, p.y, p.x - p.vx * 0.02, p.y - p.vy * 0.02);
+      } else if (p.type === "leaf") {
+        ctx.globalAlpha = clamp(p.life); ctx.fillStyle = T(p.c); ell(p.x, p.y, 3, 1.6, p.seed + S.time * 3);
+      } else if (p.type === "steam") {
+        ctx.globalAlpha = clamp(p.life / p.max) * 0.35; ctx.fillStyle = "#dfe6ea"; ell(p.x, p.y, p.r, p.r);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  function drawAim() {
+    if (!canPlay() || !S.loaded || S.arm.mode !== "rest") return;
+    const a = (S.aim.angle * Math.PI) / 180, v = S.aim.power * VMAX;
+    const vx = Math.cos(a) * v, vy = -Math.sin(a) * v, tmax = S.drag ? 0.75 : 0.4;
+    for (let t = 0.05, i = 0; t < tmax; t += 0.05, i++) {
+      const x = LAUNCH.x + vx * t, y = LAUNCH.y + vy * t + 0.5 * GRAV * t * t;
+      ctx.globalAlpha = (1 - t / tmax) * 0.9; ctx.fillStyle = "#fffaf0"; ell(x, y, 4 - (t / tmax) * 2.5, 4 - (t / tmax) * 2.5);
+    }
+    ctx.globalAlpha = 1;
+    ctx.font = "600 17px 'IBM Plex Mono', monospace";
+    const label = `${Math.round(S.aim.angle)}° · ${Math.round(S.aim.power * 100)}%`;
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = "rgba(18,24,19,.72)"; ctx.fillRect(TX - 40, 358, tw + 20, 28);
+    ctx.fillStyle = "#f2b233"; ctx.fillText(label, TX - 30, 378);
+  }
+  function drawNightLights() {
+    ctx.save(); ctx.globalCompositeOperation = "lighter";
+    for (let c = 0; c < COLS; c++) for (let i = 0; i < S.cols[c].length; i++) {
+      const x = BX + c * BW + 14, y = GROUND - (i + 1) * BH + BH - 8;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, 16);
+      g.addColorStop(0, `rgba(92,225,230,${0.45 * S.night})`); g.addColorStop(1, "rgba(92,225,230,0)");
+      ctx.fillStyle = g; ctx.fillRect(x - 16, y - 16, 32, 32);
+    }
+    const fg = ctx.createRadialGradient(BX + 190, GROUND - 150, 20, BX + 190, GROUND - 150, 420);
+    fg.addColorStop(0, `rgba(170,210,255,${0.18 * S.night})`); fg.addColorStop(1, "rgba(170,210,255,0)");
+    ctx.fillStyle = fg; ctx.fillRect(BX - 250, GROUND - 570, 900, 840);
+    ctx.restore();
+  }
+
+  // ---------- HUD ----------
+  const last = {};
+  function setText(id, v) { if (last[id] !== v) { last[id] = v; $(id).textContent = v; } }
+  function setWidth(id, v) { const key = id + ":w"; if (last[key] !== v) { last[key] = v; $(id).style.width = v; } }
+  function hud() {
+    const st = standing();
+    setText("buildPct", Math.round((st / N) * 100) + "%");
+    setWidth("buildBar", ((st / N) * 100).toFixed(1) + "%");
+    setText("buildSub", S.halt > 0 && S.state === "build" ? `Crane jammed · ${S.halt.toFixed(1)} s` : `${st} / ${N} sections standing`);
+    setText("budgetVal", money(S.budget));
+    setWidth("budgetBar", ((S.budget / S.budget0) * 100).toFixed(1) + "%");
+    const kmh = Math.round(Math.abs(S.wind) / 3);
+    setText("windVal", kmh < 2 ? "calm" : `${S.wind > 0 ? "→" : "←"} ${kmh} km/h`);
+    const ready = canPlay() && S.loaded;
+    setText("reloadVal", !canPlay() ? "Standing by" : ready ? "Rock loaded" : "Reloading…");
+    const rl = $("reloadVal"); if (rl.classList.contains("ready") !== ready) rl.classList.toggle("ready", ready);
+  }
+
+  // ---------- Boot ----------
+  newWorld(savedDiff);
+  resize();
+  showOverlay("title");
+  let prev = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - prev) / 1000); prev = now;
+    update(dt); draw(); hud(); Sfx.ambient(dt);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
