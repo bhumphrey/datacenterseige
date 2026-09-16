@@ -24,6 +24,7 @@
   }
   html, body { height: 100%; }
   body {
+    touch-action: manipulation;
     background: var(--ink);
     color: var(--parch);
     font-family: Karla, "Helvetica Neue", Arial, sans-serif;
@@ -168,6 +169,38 @@
     .brand-name { font-size: 24px; }
     .wind { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: baseline; text-align: left; }
     .meter small { font-size: 11px; }
+  }
+  /* Phone held sideways: the height is what's scarce, so the HUD moves into a
+     sidebar next to the field and the footer goes away. */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .app {
+      flex-direction: row; gap: 12px; max-width: none;
+      padding-block: 6px;
+      padding-inline: max(12px, env(safe-area-inset-left, 0px)) max(12px, env(safe-area-inset-right, 0px));
+    }
+    .stage { order: 1; flex: 1; min-width: 0; }
+    .hud {
+      order: 2; flex: none; width: 150px; overflow-y: auto;
+      grid-template-columns: 1fr; align-content: center; gap: 10px;
+    }
+    .brand, .wind { grid-column: auto; }
+    .brand-name { font-size: 20px; }
+    .permit, .meter small, .help { display: none; }
+    .mlabel { font-size: 10px; }
+    .mlabel b { font-size: 14px; }
+    .bar { height: 9px; margin-block: 3px 0; }
+    .wind { flex-direction: column; align-items: flex-start; gap: 1px; }
+    .wind b { font-size: 14px; }
+    .audio { justify-content: flex-start; flex-wrap: wrap; margin-top: 4px; }
+    .mute { padding: 5px 8px; }
+    .overlay { position: fixed; inset: 0; z-index: 10; padding: 8px; }
+    .notice-head { padding: 6px 16px; }
+    .notice-body { padding: 12px 16px 14px; gap: 10px; }
+    .notice h1 { font-size: 38px; }
+    .lede { font-size: 14px; }
+    .facts { font-size: 11.5px; padding-block: 6px; }
+    .rules { font-size: 13px; gap: 4px; }
+    .go { padding: 11px 16px; }
   }
   @media (prefers-reduced-motion: reduce) {
     .notice { animation: none; }
@@ -815,6 +848,7 @@
           <ul class="rules">
             <li><b>Win</b> Wreck sections faster than the crews rebuild them. When the budget runs dry, the building comes down and the valley returns.</li>
             <li><b>Lose</b> All 72 sections stand at once and the hall goes online.</li>
+            <li><b>Aim</b> Drag anywhere on the valley and pull back, then let go to fire.</li>
             <li><b>Tip</b> Hit low. Everything above a broken section drops and cracks. Hit the crane to halt work for 4 seconds.</li>
           </ul>
           ${diffPicker()}
