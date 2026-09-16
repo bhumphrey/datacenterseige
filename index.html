@@ -161,7 +161,6 @@
 
   .help { font-size: 12px; color: var(--muted); text-align: center; letter-spacing: .02em; }
   .help kbd { font-family: inherit; border: 1px solid var(--line); padding: 0 5px; border-radius: 3px; color: var(--parch); }
-  .portrait { display: none; }
 
   @media (max-width: 820px) {
     .hud { grid-template-columns: 1fr 1fr; gap: 8px 16px; }
@@ -169,9 +168,6 @@
     .brand-name { font-size: 24px; }
     .wind { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; align-items: baseline; text-align: left; }
     .meter small { font-size: 11px; }
-  }
-  @media (max-width: 700px) and (orientation: portrait) {
-    .portrait { display: block; color: var(--hazard); }
   }
   @media (prefers-reduced-motion: reduce) {
     .notice { animation: none; }
@@ -216,9 +212,7 @@
   </main>
 
   <footer class="help">
-    Drag anywhere and pull back to aim · release to fire &nbsp;·&nbsp; <kbd>↑</kbd><kbd>↓</kbd> angle &nbsp;<kbd>←</kbd><kbd>→</kbd> power &nbsp;<kbd>Space</kbd> fire &nbsp;<kbd>M</kbd> sound &nbsp;<kbd>B</kbd> music
-    <span class="portrait">Turn your phone sideways for a bigger valley.</span>
-  </footer>
+    Drag anywhere and pull back to aim · release to fire &nbsp;·&nbsp; <kbd>↑</kbd><kbd>↓</kbd> angle &nbsp;<kbd>←</kbd><kbd>→</kbd> power &nbsp;<kbd>Space</kbd> fire &nbsp;<kbd>M</kbd> sound &nbsp;<kbd>B</kbd> music  </footer>
 </div>
 
 <script>
