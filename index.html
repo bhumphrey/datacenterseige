@@ -261,11 +261,16 @@
   const TX = 180, TPY = 600, ARM = 150, ARM_S = 46, SLING = 50;
   const REST = Math.PI * 0.82, RELEASE = Math.PI * 1.65;
   const LAUNCH = { x: TX + Math.cos(RELEASE) * (ARM + SLING), y: TPY + Math.sin(RELEASE) * (ARM + SLING) };
-  const CRANE_X = 1530, JIB_Y = 372, HOOK_Y = 442;
+  const CRANE_X = 1585, JIB_Y = 372;
+  // Crane slew: the jib turns in plan view, drawn foreshortened by DEPTH.
+  const JIB_R = 520, JIB_MIN = 60, DEPTH = 0.32, TRAVEL_Y = JIB_Y + 66;
+  // Deliveries: each truck parks on the site road with CARGO sections aboard.
+  const CARGO = 8, TRUCK_TURN = 1.8, TRUCK_X = 1474, TRUCK_Y = 836, TRUCK_BED = TRUCK_Y - 34;
   const DIFF = {
-    easy:   { build: 1.0,  extra: 34, wind: 30, label: "Easy" },
-    normal: { build: 0.78, extra: 42, wind: 55, label: "Normal" },
-    hard:   { build: 0.6,  extra: 50, wind: 85, label: "Hard" },
+    // build = seconds per section overall; bundle = sections the crane lifts per trip.
+    easy:   { build: 1.0,  extra: 34, wind: 30, bundle: 2, label: "Easy" },
+    normal: { build: 0.78, extra: 42, wind: 55, bundle: 2, label: "Normal" },
+    hard:   { build: 0.6,  extra: 50, wind: 85, bundle: 3, label: "Hard" },
   };
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -541,13 +546,6 @@
       o.connect(f); f.connect(g); g.connect(out(pan, siteBus)); o.start(t); o.stop(t + len + 0.05);
       burst({ time: t + 0.15, dur: len - 0.3, filter: "bandpass", f0: 4200, q: 2, peak: 0.02, attack: 0.1, pan, bus: siteBus });
     }
-    function truckArrives() {
-      const pan = 0.8;
-      burst({ dur: 0.7, filter: "highpass", f0: 2600, peak: 0.05, attack: 0.01, pan, bus: siteBus }); // air brakes
-      burst({ at: 0.5, dur: 1.8, f0: 900, f1: 260, peak: 0.08, attack: 0.4, pan, bus: siteBus });     // gravel sliding out
-      for (let i = 0; i < 16; i++)
-        burst({ at: 0.6 + Math.random() * 1.6, dur: 0.03, filter: "bandpass", f0: 1500 + Math.random() * 2000, q: 2, peak: 0.03 + Math.random() * 0.03, pan, bus: siteBus });
-    }
     function chirp() {
       const t = ac.currentTime + 0.02, base = 2400 + Math.random() * 2200, n = 2 + ((Math.random() * 4) | 0);
       const pan = (Math.random() * 2 - 1) * 0.8, rising = Math.random() < 0.5;
@@ -584,15 +582,13 @@
         if (amb.hammerT <= 0) { const n = 3 + ((Math.random() * 4) | 0); hammering(n); amb.hammerT = n * 0.36 + 1.5 + Math.random() * 4; }
         if (amb.sawT <= 0) { const len = 1.1 + Math.random() * 1.2; grinder(len); amb.sawT = len + 7 + Math.random() * 8; }
       }
-      const tx = S.trolleyX, speed = amb.trolley == null ? 0 : Math.abs(tx - amb.trolley) / elapsed;
+      const tx = hookXY(S.crane).x, speed = amb.trolley == null ? 0 : Math.abs(tx - amb.trolley) / elapsed;
       amb.trolley = tx;
       const whine = working ? Math.min(1, speed / 400) : 0;
       amb.crG.gain.setTargetAtTime(0.035 * whine, now, 0.08);
       amb.crO.frequency.setTargetAtTime(60 + whine * 70, now, 0.1);
-      if (S.truck.state === "unload" && amb.truckState !== "unload") truckArrives();
-      amb.truckState = S.truck.state;
-      // Reversing beeper while the dump truck unloads.
-      if (S.truck.state === "unload") {
+      // Reversing beeper as a delivery pulls away.
+      if (S.truck.state === "out") {
         amb.beepT -= elapsed;
         if (amb.beepT <= 0) { amb.beepT = 0.5; tone({ type: "square", f0: 1050, dur: 0.22, peak: 0.025, pan: 0.7, cut: 3000, bus: ambBus }); }
       } else amb.beepT = 0;
@@ -653,6 +649,23 @@
         tone({ f0: 95, f1: 50, dur: 0.22, peak: 0.14, pan: p, bus: siteBus });
         tone({ type: "triangle", f0: 430, f1: 410, dur: 0.35, peak: 0.035, attack: 0.002, pan: p, bus: siteBus });
         burst({ dur: 0.08, filter: "bandpass", f0: 1400, q: 1.5, peak: 0.08, pan: p, bus: siteBus });
+      },
+      // Air brakes as a delivery parks.
+      truckStop(x) {
+        if (!ready()) return;
+        const p = panOf(x);
+        burst({ dur: 0.7, filter: "highpass", f0: 2600, peak: 0.06, attack: 0.01, pan: p, bus: siteBus });
+        tone({ f0: 120, f1: 70, dur: 0.3, peak: 0.06, pan: p, bus: siteBus });
+      },
+      // A loaded truck taking a direct hit.
+      cargoWreck(x) {
+        if (!ready()) return;
+        const p = panOf(x);
+        tone({ f0: 90, f1: 34, dur: 0.5, peak: 0.7, pan: p });
+        burst({ dur: 0.6, filter: "bandpass", f0: 2400, f1: 400, q: 1, peak: 0.6, pan: p });
+        [[420, 0.12], [930, 0.08], [1490, 0.05]].forEach(([f, pk]) => tone({ type: "triangle", f0: f, f1: f * 0.98, dur: 1.1, peak: pk, pan: p }));
+        for (let i = 0; i < 14; i++)
+          burst({ at: 0.05 + Math.random() * 0.8, dur: 0.05, filter: "bandpass", f0: 700 + Math.random() * 1800, q: 2, peak: 0.12, pan: p });
       },
       // Chainsaw revving through a trunk.
       chainsaw(x) {
@@ -767,9 +780,10 @@
       state: "title", diffKey, diff: DIFF[diffKey], time: 0, st: 0, bt: 0,
       cols: Array.from({ length: COLS }, () => []), rubble: new Array(COLS).fill(0),
       budget0: (N + DIFF[diffKey].extra) * COST, budget: (N + DIFF[diffKey].extra) * COST,
-      placements: 0, buildAcc: 0, halt: 0, maxP: 0,
+      placements: 0, halt: 0, maxP: 0,
       dirtA: 0, fenceA: 0, foundationA: 0, dryness: 0, haze: 0, night: 0,
-      craneH: 0, craneFall: 0, craneA: 1, craneShake: 0, craneLanded: false, trolleyX: 1280, completeT: 0,
+      craneH: 0, craneFall: 0, craneA: 1, craneShake: 0, craneLanded: false, completeT: 0,
+      crane: { phase: "idle", t: 0, r: 320, phi: 0.25, r0: 320, phi0: 0.25, tr: 320, tphi: 0.25, hook: TRAVEL_Y, carry: 0, placed: 0, col: 0 },
       trees, animals,
       flock: { mode: "home", cx: 640, cy: 220, birds: Array.from({ length: 8 }, (_, i) => ({ ox: (Math.random() - 0.5) * 120, oy: (Math.random() - 0.5) * 50, ph: Math.random() * 6 })) },
       butterflies: Array.from({ length: 6 }, (_, i) => ({ hx: 380 + i * 170 + Math.random() * 60, hy: 700 + Math.random() * 140, ph: Math.random() * 6, a: 1, fleeAt: 0.15 + i * 0.07 })),
@@ -777,11 +791,12 @@
       fish: [], fishT: 2,
       decals: [], particles: [], rocks: [],
       dozer: { x: 1760, dir: -1, active: false },
-      truck: { x: 1800, state: "wait", t: 5, tilt: 0 },
+      truck: { x: W + 150, state: "wait", t: 3, cargo: 0, wrecked: 0, hit: 0 },
       workers: Array.from({ length: 4 }, (_, i) => ({ x: 1700 + i * 40, tx: 1100 + i * 100, dir: -1, ph: Math.random() * 6, t: 0 })),
       aim: { angle: 46, power: 0.74 }, arm: { a: REST, mode: "rest", t: 0 }, loaded: true,
       wind: 0, shake: 0, drag: null,
-      stats: { shots: 0, hits: 0, destroyed: 0, time: 0, craneHits: 0 },
+      stats: { shots: 0, hits: 0, destroyed: 0, time: 0, craneHits: 0, loads: 0, cargo: 0 },
+      lastShot: null,
       said: new Set(),
     };
   }
@@ -825,6 +840,7 @@
       <dt>Rocks thrown</dt><dd>${s.shots} (${acc}% on target)</dd>
       <dt>Sections wrecked</dt><dd>${s.destroyed}</dd>
       <dt>Crane jams</dt><dd>${s.craneHits}</dd>
+      <dt>Loads wrecked</dt><dd>${s.cargo} sections on ${s.loads} deliveries</dd>
       <dt>Rebuild bill</dt><dd>${money(s.destroyed * COST)}</dd>
       <dt>Pace</dt><dd>${S.diff.label}</dd>
     </dl>`;
@@ -849,6 +865,7 @@
             <li><b>Win</b> Wreck sections faster than the crews rebuild them. When the budget runs dry, the building comes down and the valley returns.</li>
             <li><b>Lose</b> All 72 sections stand at once and the hall goes online.</li>
             <li><b>Aim</b> Drag anywhere on the valley and pull back, then let go to fire.</li>
+            <li><b>Trucks</b> Every section arrives by truck and the crane lifts it off the bed. Hit a loaded truck and the whole load is lost — and already paid for.</li>
             <li><b>Tip</b> Hit low. Everything above a broken section drops and cracks. Hit the crane to halt work for 4 seconds.</li>
           </ul>
           ${diffPicker()}
@@ -993,13 +1010,75 @@
   // ---------- Building ----------
   const standing = () => S.cols.reduce((n, c) => n + c.length, 0);
   function nextCol() { let best = 0; for (let c = 1; c < COLS; c++) if (S.cols[c].length < S.cols[best].length) best = c; return best; }
-  function placeBlock() {
+  // Crane geometry: a target on the ground becomes a jib angle and trolley radius.
+  function craneAim(x, depth) {
+    const a = CRANE_X - x, b = depth / DEPTH;
+    return { r: clamp(Math.hypot(a, b), JIB_MIN, JIB_R), phi: Math.atan2(b, Math.max(1, a)) };
+  }
+  function hookXY(cr) {
+    return { x: CRANE_X - cr.r * Math.cos(cr.phi), y: JIB_Y + cr.r * Math.sin(cr.phi) * DEPTH };
+  }
+  const colX = (c) => BX + c * BW + BW / 2;
+  // One crane trip covers a bundle of sections, minus the time trucks cost us.
+  const cycleTime = () => Math.max(0.9, (S.diff.build - TRUCK_TURN / CARGO) * S.diff.bundle);
+  function updCrane(dt) {
+    const cr = S.crane, tk = S.truck, C = cycleTime();
+    const goTo = (t, frac) => {
+      const u = easeInOut(clamp(cr.t / (C * frac)));
+      cr.r = lerp(cr.r0, cr.tr, u); cr.phi = lerp(cr.phi0, cr.tphi, u);
+      return u >= 1;
+    };
+    const setPhase = (p, target) => {
+      cr.phase = p; cr.t = 0; cr.r0 = cr.r; cr.phi0 = cr.phi;
+      if (target) { cr.tr = target.r; cr.tphi = target.phi; }
+    };
+    cr.t += dt;
+    if (cr.phase === "idle") {
+      // Park facing the stack until there's a section to lift and money to spend.
+      cr.hook += (TRAVEL_Y - cr.hook) * Math.min(1, dt * 6);
+      if (tk.cargo > 0 && tk.state === "parked" && standing() < N && S.budget >= COST)
+        setPhase("toTruck", craneAim(TRUCK_X + 18, TRUCK_Y - GROUND));
+    } else if (cr.phase === "toTruck") {
+      cr.hook += (TRAVEL_Y - cr.hook) * Math.min(1, dt * 6);
+      if (goTo(cr, 0.26)) setPhase("grab");
+    } else if (cr.phase === "grab") {
+      const u = clamp(cr.t / (C * 0.2)), bed = TRUCK_BED - (tk.cargo >> 1) * 11;
+      cr.hook = lerp(TRAVEL_Y, bed, u < 0.5 ? easeOut(u * 2) : easeIn(2 - u * 2));
+      if (u >= 0.5 && !cr.carry) {
+        if (tk.cargo > 0) {
+          cr.carry = Math.min(S.diff.bundle, tk.cargo);
+          tk.cargo -= cr.carry;
+          Sfx.clank(TRUCK_X);
+          if (tk.cargo <= 0) tk.state = "out";
+        } else { setPhase("idle"); return; }
+      }
+      if (u >= 1) { cr.col = nextCol(); setPhase("toSite", craneAim(colX(cr.col), 0)); }
+    } else if (cr.phase === "toSite") {
+      cr.hook += (TRAVEL_Y - cr.hook) * Math.min(1, dt * 6);
+      if (goTo(cr, 0.34)) { cr.placed = 0; setPhase("place"); }
+    } else if (cr.phase === "place") {
+      // Set the bundle down one section at a time, walking along the low columns.
+      const bundle = Math.max(1, cr.carry + cr.placed), u = clamp(cr.t / (C * 0.26));
+      if (S.cols[cr.col].length >= ROWS) cr.col = nextCol();
+      const top = GROUND - (S.cols[cr.col].length + 1) * BH;
+      cr.hook = lerp(TRAVEL_Y, top - 12, u < 0.55 ? easeOut(u / 0.55) : easeIn(1 - (u - 0.55) / 0.45));
+      const due = Math.floor(clamp((u - 0.5) / 0.4) * bundle);
+      while (cr.carry > 0 && cr.placed < due) {
+        placeBlock(cr.col); cr.carry--; cr.placed++;
+        cr.col = nextCol();
+        const aim = craneAim(colX(cr.col), 0); cr.r = aim.r; cr.phi = aim.phi;
+      }
+      if (u >= 1) { cr.carry = 0; setPhase("idle"); }
+    }
+  }
+  function placeBlock(c) {
     if (S.budget < COST) return;
-    const c = nextCol(), col = S.cols[c];
+    if (c == null || S.cols[c].length >= ROWS) c = nextCol();
+    const col = S.cols[c];
     if (col.length >= ROWS) return;
     const top = GROUND - (col.length + 1) * BH;
     const cracks = Array.from({ length: 3 }, () => [rand(6, BW - 6), rand(4, BH - 4), rand(-12, 12), rand(-10, 10), rand(-10, 10), rand(-8, 8)]);
-    col.push({ hp: BLOCK_HP, fall: Math.max(0, top - HOOK_Y), fv: 0, flash: 0, cracks });
+    col.push({ hp: BLOCK_HP, fall: 10, fv: 0, flash: 0, cracks });
     S.budget -= COST; S.placements++;
   }
   function blockAt(x, y) {
@@ -1045,10 +1124,37 @@
       toast(`${killed} section${killed > 1 ? "s" : ""} down · −${money(killed * COST)} to rebuild`);
     } else if (hit) toast("Cracked it. Hit it again.");
   }
+  function hitTruck(r) {
+    const tk = S.truck;
+    if (S.state !== "build" || tk.state === "wait") return false;
+    // The truck stands past the wall, so only a shot that clears the wall reaches it.
+    if (Math.abs(r.x - tk.x) > 64 || r.y < 700) return false;
+    S.stats.hits++;
+    chunks(r.x, r.y, 10); sparks(r.x, r.y, 10); dust(r.x, TRUCK_Y, 8, 1.2); shake(0.8);
+    if (tk.cargo > 0) {
+      const lost = tk.cargo;
+      tk.cargo = 0; tk.wrecked = 1; tk.hit = 0.4; tk.state = "out";
+      S.budget -= lost * COST;
+      S.stats.cargo += lost;
+      for (let i = 0; i < lost * 4; i++) chunks(tk.x + rand(-40, 40), TRUCK_BED, 3);
+      toast(`Delivery wrecked · ${lost} sections · −${money(lost * COST)}`);
+      Sfx.cargoWreck(r.x);
+      if (!S.said.has("cargo")) { S.said.add("cargo"); caption("They paid for those sections. Now they'll pay again."); }
+    } else {
+      tk.hit = 0.3;
+      toast("Empty truck. No load to lose.");
+      Sfx.clang(r.x);
+    }
+    return true;
+  }
   function hitCrane(r) {
     if (S.state !== "build" || S.craneH < 1 || S.craneFall > 0) return false;
     const tower = Math.abs(r.x - CRANE_X) < 14 && r.y > JIB_Y - 40 && r.y < GROUND;
-    const jib = Math.abs(r.y - (JIB_Y - 5)) < 12 && r.x > 1030 && r.x < CRANE_X + 95;
+    // The jib swings, so test the rock against the segment where it currently points.
+    const h = hookXY(S.crane), ax = CRANE_X, ay = JIB_Y, bx = h.x, by = h.y;
+    const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
+    const u = clamp(((r.x - ax) * dx + (r.y - ay) * dy) / len2);
+    const jib = Math.hypot(r.x - (ax + dx * u), r.y - (ay + dy * u)) < 13;
     if (!tower && !jib) return false;
     S.halt = 4; S.craneShake = 1; S.stats.craneHits++; S.stats.hits++;
     sparks(r.x, r.y, 18); dust(r.x, r.y, 4, 0.8); shake(0.5);
@@ -1101,9 +1207,10 @@
       for (let s = 0; s < 3 && !dead; s++) {
         const h = dt / 3;
         r.vx += r.wind * h; r.vy += GRAV * h; r.x += r.vx * h; r.y += r.vy * h; r.rot += r.vx * h * 0.02;
-        if (hitCrane(r)) dead = true;
-        else if (blockAt(r.x + 10, r.y) || blockAt(r.x, r.y + 10)) { impact(r.x, r.y); dead = true; }
-        else if (r.y >= GROUND + 6) { impact(r.x, GROUND + 6); dead = true; }
+        if (hitCrane(r)) { S.lastShot = { x: r.x, y: r.y, t: 6 }; dead = true; }
+        else if (blockAt(r.x + 10, r.y) || blockAt(r.x, r.y + 10)) { impact(r.x, r.y); S.lastShot = { x: r.x, y: r.y, t: 6 }; dead = true; }
+        else if (hitTruck(r)) { S.lastShot = { x: r.x, y: TRUCK_Y, t: 6 }; dead = true; }
+        else if (r.y >= GROUND + 6) { impact(r.x, GROUND + 6); S.lastShot = { x: r.x, y: GROUND + 6, t: 6 }; dead = true; }
         else if (r.x > W + 150) dead = true;
       }
       r.trail.push([r.x, r.y]); if (r.trail.length > 14) r.trail.shift();
@@ -1124,6 +1231,7 @@
       if (p.life <= 0) S.particles.splice(k, 1);
     }
     for (let k = S.decals.length - 1; k >= 0; k--) { S.decals[k].life -= dt; if (S.decals[k].life <= 0) S.decals.splice(k, 1); }
+    if (S.lastShot) S.lastShot.t -= dt;
     S.shake = Math.max(0, S.shake - dt * 2.2);
   }
 
@@ -1133,13 +1241,8 @@
     S.fenceA = clamp((S.bt - 2) / 2);
     S.craneH = easeOut(clamp((S.bt - 1.5) / 3));
     S.foundationA = clamp((S.bt - 3) / 1.5);
-    const target = BX + nextCol() * BW + BW / 2;
-    S.trolleyX += clamp(target - S.trolleyX, -420 * dt, 420 * dt);
     if (S.halt > 0) S.halt -= dt;
-    else if (S.bt > 4.5) {
-      S.buildAcc += dt;
-      if (S.buildAcc >= S.diff.build) { S.buildAcc = 0; placeBlock(); }
-    }
+    else if (S.bt > 4.5) updCrane(dt);
     const st = standing(), p = st / N;
     S.maxP = Math.max(S.maxP, p);
     S.dryness += (clamp((S.maxP - 0.12) / 0.3) - S.dryness) * Math.min(1, dt * 1.5);
@@ -1313,12 +1416,21 @@
       }
     }
     const tk = S.truck;
+    if (tk.hit > 0) tk.hit -= dt;
     if (S.state === "build") {
-      if (tk.state === "wait") { tk.t -= dt; if (tk.t <= 0) { tk.state = "in"; tk.x = W + 150; } }
-      else if (tk.state === "in") { tk.x -= 170 * dt; if (tk.x <= 1500) { tk.state = "unload"; tk.t = 2.4; } }
-      else if (tk.state === "unload") { tk.t -= dt; tk.tilt = Math.sin(clamp(1 - tk.t / 2.4) * Math.PI) * 0.5; if (tk.t <= 0) { tk.state = "out"; tk.tilt = 0; } }
-      else if (tk.state === "out") { tk.x += 190 * dt; if (tk.x > W + 150) { tk.state = "wait"; tk.t = rand(4, 7); } }
-    } else if (leaving && tk.state !== "wait") { tk.tilt = 0; tk.x += 340 * dt; if (tk.x > W + 200) tk.state = "wait"; }
+      if (tk.state === "wait") {
+        tk.t -= dt;
+        if (tk.t <= 0) { tk.state = "in"; tk.x = W + 150; tk.cargo = CARGO; tk.wrecked = 0; S.stats.loads++; }
+      } else if (tk.state === "in") {
+        tk.x -= 300 * dt;
+        if (tk.x <= TRUCK_X) { tk.x = TRUCK_X; tk.state = "parked"; Sfx.truckStop(TRUCK_X); if (!S.said.has("truck")) { S.said.add("truck"); caption("Sections arrive by truck. Wreck a load and they pay for it twice."); } }
+      } else if (tk.state === "parked") {
+        if (tk.cargo <= 0) tk.state = "out";
+      } else if (tk.state === "out") {
+        tk.x += 260 * dt;
+        if (tk.x > W + 150) { tk.state = "wait"; tk.t = TRUCK_TURN + tk.wrecked * 4; }
+      }
+    } else if (leaving && tk.state !== "wait") { tk.x += 340 * dt; if (tk.x > W + 200) tk.state = "wait"; }
     for (const w of S.workers) {
       w.ph += dt * 8;
       if (S.state === "build" && S.bt > 2) {
@@ -1343,10 +1455,10 @@
     for (const a of S.animals) if (a.mode !== "gone" && !(a.kind === "heron" && a.mode !== "home")) objs.push([a.y, () => drawAnimal(a)]);
     objs.push([GROUND + 6, drawTrebuchet]);
     objs.push([GROUND - 1, drawBuilding]);
-    objs.push([GROUND - 8, drawCrane]);
+    objs.push([GROUND + 3, drawCrane]);
     objs.push([GROUND + 12, drawRubble]);
     if (S.dozer.active) objs.push([812, drawDozer]);
-    if (S.truck.state !== "wait") objs.push([848, drawTruck]);
+    if (S.truck.state !== "wait") objs.push([TRUCK_Y, drawTruck]);
     for (const w of S.workers) if (w.x < W + 40) objs.push([800, () => drawWorker(w)]);
     if (S.fenceA > 0) objs.push([846, drawFence]);
     objs.sort((a, b) => a[0] - b[0]);
@@ -1354,7 +1466,7 @@
 
     for (const a of S.animals) if (a.kind === "heron" && a.mode !== "home" && a.mode !== "gone") drawAnimal(a);
     drawFish(); drawBirds(); drawButterflies();
-    drawRocks(); drawParticles(); drawAim();
+    drawRocks(); drawParticles(); drawLastShot(); drawAim();
     if (S.night > 0) drawNightLights();
   }
 
@@ -1602,8 +1714,14 @@
     if (S.arm.mode !== "recover") {
       const off = -0.32 * Math.PI * (1 - t);
       let rx = tipX + Math.cos(a + off) * SLING, ry = tipY + Math.sin(a + off) * SLING;
+      // While you drag, the sling visibly loads up against the aim.
+      const pulling = S.drag && S.drag.len > 12 && S.loaded && S.arm.mode === "rest";
+      if (pulling) {
+        const ang = (S.aim.angle * Math.PI) / 180, pull = 24 + S.aim.power * 92;
+        rx -= Math.cos(ang) * pull; ry += Math.sin(ang) * pull;
+      }
       if (ry > base - 12) ry = base - 12;
-      ctx.strokeStyle = TN("#c9b48a"); ctx.lineWidth = 1.5; line(tipX, tipY, rx, ry);
+      ctx.strokeStyle = TN(pulling ? "#e6d4a6" : "#c9b48a"); ctx.lineWidth = pulling ? 2.5 : 1.5; line(tipX, tipY, rx, ry);
       drawRockAt(rx, ry, 0);
     }
     ctx.restore();
@@ -1678,26 +1796,39 @@
     ctx.lineWidth = 1.5;
     for (let y = 0; y > top + 18; y -= 18) { line(-9, y, 9, y - 18); line(-9, y - 18, 9, y - 18); }
     if (S.craneH >= 1) {
-      const jl = 1040 - CRANE_X, jt = top - 12;
-      ctx.lineWidth = 3; line(jl, top, 95, top); line(jl + 20, jt, 95, jt);
-      ctx.lineWidth = 1.5;
-      for (let x = jl + 20; x < 95; x += 18) { line(x, top, x + 9, jt); line(x + 9, jt, x + 18, top); }
-      line(jl, top, jl + 20, jt);
-      ctx.lineWidth = 2; line(0, top - 44, jl + 60, jt); line(0, top - 44, 90, jt); line(-9, top, 0, top - 44); line(9, top, 0, top - 44);
-      ctx.fillStyle = TN("#8e928a"); ctx.fillRect(58, top - 4, 34, 24);
-      ctx.fillStyle = TN("#e0a526"); ctx.fillRect(-16, top + 2, 24, 20);
-      ctx.fillStyle = TN("#9bc6d6"); ctx.fillRect(-12, top + 6, 14, 8);
+      const cr = S.crane, cf = Math.cos(cr.phi), sf = Math.sin(cr.phi) * DEPTH;
+      // Jib and counter-jib swing in plan view: they foreshorten as they turn.
+      const jx = -JIB_R * cf, jy = top + JIB_R * sf, cjx = 130 * cf, cjy = top - 130 * sf;
+      const jt = top - 12, thick = 12 - Math.abs(sf) * 5;
+      ctx.lineWidth = 3;
+      line(jx, jy, cjx, cjy); line(jx * 0.96, jy * 1 - thick, cjx, cjy - thick);
+      ctx.lineWidth = 1.4;
+      for (let u = 0.08; u < 1; u += 0.09) {
+        const ax = lerp(cjx, jx, u), ay = lerp(cjy, jy, u), bx = lerp(cjx, jx, u + 0.045), by = lerp(cjy, jy, u + 0.045);
+        line(ax, ay, bx, by - thick); line(bx, by - thick, lerp(cjx, jx, u + 0.09), lerp(cjy, jy, u + 0.09));
+      }
+      // Slew ring, cab and mast tie-bars.
+      ctx.fillStyle = TN("#c99420"); ell(0, top, 16, 6);
+      ctx.lineWidth = 2;
+      line(0, top - 46, lerp(cjx, jx, 0.55), lerp(cjy, jy, 0.55) - thick);
+      line(0, top - 46, cjx, cjy - thick); line(-9, top, 0, top - 46); line(9, top, 0, top - 46);
+      ctx.fillStyle = TN("#8e928a"); ctx.fillRect(cjx - 18, cjy - 8, 30, 22);
+      ctx.fillStyle = TN("#e0a526"); ctx.fillRect(-14, top + 2, 24, 20);
+      ctx.fillStyle = TN("#9bc6d6"); ctx.fillRect(-10, top + 6, 14, 8);
       const blink = S.halt > 0 ? Math.sin(S.time * 18) > 0 : Math.sin(S.time * 3) > 0.6;
-      ctx.fillStyle = blink ? "#ff4b3a" : "#5a1d18"; ell(0, top - 46, 3.5, 3.5);
-      // trolley, cable, hook
-      const tx = S.trolleyX - CRANE_X, swing = S.halt > 0 ? Math.sin(S.time * 5) * 10 : Math.sin(S.time * 1.5) * 2;
-      const hookY = HOOK_Y - GROUND;
-      ctx.fillStyle = TN("#3a3e3a"); ctx.fillRect(tx - 7, top - 2, 14, 7);
-      ctx.strokeStyle = TN("#2f322f"); ctx.lineWidth = 1.2; line(tx, top + 5, tx + swing, hookY);
+      ctx.fillStyle = blink ? "#ff4b3a" : "#5a1d18"; ell(0, top - 48, 3.5, 3.5);
+      // Trolley rides the jib; the hook hangs from wherever it stopped.
+      const h = hookXY(cr), tx = h.x - CRANE_X, ty = h.y - GROUND;
+      const swing = S.halt > 0 ? Math.sin(S.time * 5) * 9 : Math.sin(S.time * 1.4) * 2;
+      ctx.fillStyle = TN("#3a3e3a"); ctx.fillRect(tx - 7, ty - 3, 14, 7);
+      ctx.strokeStyle = TN("#2f322f"); ctx.lineWidth = 1.2;
+      const hookY = cr.hook - GROUND;
+      line(tx, ty + 4, tx + swing, hookY);
       ctx.fillStyle = TN("#e0a526"); ctx.fillRect(tx + swing - 4, hookY - 2, 8, 6);
-      if (S.state === "build" && S.halt <= 0 && S.bt > 4.5 && S.buildAcc > S.diff.build * 0.35 && S.budget >= COST && standing() < N) {
-        ctx.strokeStyle = TN("#2f322f"); line(tx + swing, hookY + 4, tx + swing - 14, hookY + 12); line(tx + swing, hookY + 4, tx + swing + 14, hookY + 12);
-        drawBlock(tx + swing - BW / 2, hookY + 10, { hp: BLOCK_HP, flash: 0 }, 1, 0);
+      if (cr.carry > 0) {
+        ctx.strokeStyle = TN("#2f322f");
+        line(tx + swing, hookY + 4, tx + swing - 14, hookY + 14); line(tx + swing, hookY + 4, tx + swing + 14, hookY + 14);
+        for (let i = 0; i < cr.carry; i++) drawBlock(tx + swing - BW / 2, hookY + 12 + i * (BH - 2), { hp: BLOCK_HP, flash: 0 }, 1, i);
       }
     }
     ctx.restore();
@@ -1715,15 +1846,25 @@
     ctx.restore();
   }
   function drawTruck() {
-    const t = S.truck;
-    ctx.save(); ctx.translate(t.x, 848);
-    ctx.fillStyle = TN("#2b2b28"); ell(-38, -10, 11, 11); ell(30, -10, 11, 11); ell(52, -10, 11, 11);
-    ctx.fillStyle = TN("#e2e2dc"); ctx.fillRect(-58, -48, 36, 34);
-    ctx.fillStyle = TN("#9bc6d6"); ctx.fillRect(-54, -44, 18, 14);
-    ctx.save(); ctx.translate(70, -18); ctx.rotate(-t.tilt);
-    ctx.fillStyle = TN("#c0582f"); ctx.fillRect(-88, -38, 90, 32);
-    ctx.fillStyle = TN("#8e928a"); if (t.state === "in") ell(-43, -38, 40, 9);
-    ctx.restore();
+    const t = S.truck, jolt = t.hit > 0 ? Math.sin(S.time * 60) * 4 * t.hit : 0;
+    ctx.save(); ctx.translate(t.x + jolt, TRUCK_Y);
+    // Flatbed with the sections it's carrying, stacked two per row.
+    ctx.fillStyle = TN("#2b2b28"); ell(-44, -11, 12, 12); ell(28, -11, 12, 12); ell(52, -11, 12, 12);
+    ctx.fillStyle = TN("#5a6169"); ctx.fillRect(-30, -30, 92, 10);
+    ctx.fillStyle = TN(t.wrecked ? "#7c5348" : "#e2e2dc"); ctx.fillRect(-66, -56, 38, 36);
+    ctx.fillStyle = TN("#9bc6d6"); ctx.fillRect(-62, -52, 20, 15);
+    ctx.fillStyle = TN("#2b2b28"); ctx.fillRect(-30, -46, 5, 18);
+    for (let i = 0; i < t.cargo; i++) {
+      const row = i >> 1, cx = -22 + (i % 2) * 40, cy = -34 - row * 11;
+      ctx.fillStyle = TN(row % 2 ? "#b1b5ad" : "#bcc0b8"); ctx.fillRect(cx, cy - 10, 36, 10);
+      ctx.strokeStyle = TN("#7e847d"); ctx.lineWidth = 1; ctx.strokeRect(cx + 0.5, cy - 9.5, 35, 9);
+      ctx.fillStyle = TN("#949a92"); ctx.fillRect(cx + 4, cy - 7, 28, 2);
+    }
+    if (t.cargo > 0) { ctx.strokeStyle = TN("#3a3e3a"); ctx.lineWidth = 1.5; line(-24, -30, -24, -34 - (t.cargo >> 1) * 11); line(56, -30, 56, -34 - (t.cargo >> 1) * 11); }
+    if (t.wrecked) {
+      ctx.fillStyle = "rgba(40,36,32,.55)"; ctx.fillRect(-30, -32, 92, 6);
+      ctx.strokeStyle = TN("#3a3e3a"); ctx.lineWidth = 2; line(-10, -30, 6, -44); line(20, -30, 34, -42);
+    }
     ctx.restore();
   }
   function drawWorker(w) {
@@ -1811,20 +1952,51 @@
     }
     ctx.globalAlpha = 1;
   }
+  // Flight path with no wind: what the crew can predict, the weather is on you.
+  function predict() {
+    const a = (S.aim.angle * Math.PI) / 180, v = S.aim.power * VMAX;
+    let x = LAUNCH.x, y = LAUNCH.y, vx = Math.cos(a) * v, vy = -Math.sin(a) * v;
+    const pts = [], h = 1 / 90;
+    for (let i = 0; i < 900; i++) {
+      vy += GRAV * h; x += vx * h; y += vy * h;
+      if (i % 6 === 0) pts.push([x, y]);
+      if (y >= GROUND + 6 || blockAt(x + 10, y) || blockAt(x, y + 10) || x > W + 60) { pts.push([x, y]); return { pts, x, y }; }
+    }
+    return { pts, x, y };
+  }
   function drawAim() {
     if (!canPlay() || !S.loaded || S.arm.mode !== "rest") return;
-    const a = (S.aim.angle * Math.PI) / 180, v = S.aim.power * VMAX;
-    const vx = Math.cos(a) * v, vy = -Math.sin(a) * v, tmax = S.drag ? 0.75 : 0.4;
-    for (let t = 0.05, i = 0; t < tmax; t += 0.05, i++) {
-      const x = LAUNCH.x + vx * t, y = LAUNCH.y + vy * t + 0.5 * GRAV * t * t;
-      ctx.globalAlpha = (1 - t / tmax) * 0.9; ctx.fillStyle = "#fffaf0"; ell(x, y, 4 - (t / tmax) * 2.5, 4 - (t / tmax) * 2.5);
-    }
+    const { pts, x: lx, y: ly } = predict();
+    pts.forEach(([x, y], i) => {
+      const u = i / pts.length, r = 3.4 - u * 1.2;
+      ctx.globalAlpha = 0.28 - u * 0.1; ctx.fillStyle = "#1d2a1f"; ell(x + 1.5, y + 1.5, r, r);
+      ctx.globalAlpha = 0.95 - u * 0.3; ctx.fillStyle = "#fffaf0"; ell(x, y, r, r);
+    });
+    // Landing ring, flattened where it sits on the ground.
+    ctx.globalAlpha = 0.9; ctx.strokeStyle = "#f2b233"; ctx.lineWidth = 2.5;
+    const onGround = ly >= GROUND - 2;
+    ctx.beginPath();
+    ctx.ellipse(lx, Math.min(ly, GROUND + 6), 17, onGround ? 6 : 15, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lx - 7, Math.min(ly, GROUND + 6)); ctx.lineTo(lx + 7, Math.min(ly, GROUND + 6)); ctx.stroke();
     ctx.globalAlpha = 1;
     ctx.font = "600 17px 'IBM Plex Mono', monospace";
     const label = `${Math.round(S.aim.angle)}° · ${Math.round(S.aim.power * 100)}%`;
     const tw = ctx.measureText(label).width;
     ctx.fillStyle = "rgba(18,24,19,.72)"; ctx.fillRect(TX - 40, 358, tw + 20, 28);
     ctx.fillStyle = "#f2b233"; ctx.fillText(label, TX - 30, 378);
+  }
+  // Where the previous rock actually came down, wind and all.
+  function drawLastShot() {
+    const s = S.lastShot; if (!s || s.t <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = clamp(s.t / 2) * 0.75;
+    ctx.strokeStyle = "#e8dcc2"; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.ellipse(s.x, s.y, 14, s.y >= GROUND - 2 ? 5 : 13, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = "600 12px 'IBM Plex Mono', monospace"; ctx.fillStyle = "#e8dcc2";
+    ctx.fillText("last shot", s.x - 26, s.y - 20);
+    ctx.restore();
   }
   function drawNightLights() {
     ctx.save(); ctx.globalCompositeOperation = "lighter";
