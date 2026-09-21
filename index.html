@@ -620,6 +620,8 @@
         tone({ at: 0.29, f0: 130, f1: 45, dur: 0.2, peak: 0.55, pan: p });
         burst({ at: 0.29, dur: 0.09, f0: 900, f1: 200, peak: 0.35, pan: p });
         burst({ at: 0.3, dur: 0.55, filter: "bandpass", f0: 350, f1: 1400 + power * 900, q: 1.4, peak: 0.18 + power * 0.14, attack: 0.08, pan: -0.4 });
+        // Wheels rolling on packed dirt as the frame surges and settles.
+        burst({ at: 0.3, dur: 0.7, f0: 320, f1: 140, q: 0.8, peak: 0.1 + power * 0.06, attack: 0.12, pan: p });
       },
       // Rock into dirt.
       thud(x) {
@@ -794,6 +796,8 @@
       truck: { x: W + 150, state: "wait", t: 3, cargo: 0, wrecked: 0, hit: 0 },
       workers: Array.from({ length: 4 }, (_, i) => ({ x: 1700 + i * 40, tx: 1100 + i * 100, dir: -1, ph: Math.random() * 6, t: 0 })),
       aim: { angle: 46, power: 0.74 }, arm: { a: REST, mode: "rest", t: 0 }, loaded: true,
+      // The frame rolls on its wheels when it throws, then the crew re-lays it.
+      treb: { x: 0, v: 0, base: 0, wheel: 0 },
       wind: 0, shake: 0, drag: null,
       stats: { shots: 0, hits: 0, destroyed: 0, time: 0, craneHits: 0, loads: 0, cargo: 0 },
       lastShot: null,
@@ -984,8 +988,12 @@
     Sfx.launch(S.aim.power);
   }
   function launch() {
-    const a = (S.aim.angle * Math.PI) / 180, v = S.aim.power * VMAX;
-    S.rocks.push({ x: LAUNCH.x, y: LAUNCH.y, vx: Math.cos(a) * v, vy: -Math.sin(a) * v, rot: 0, wind: S.wind, trail: [] });
+    const a = (S.aim.angle * Math.PI) / 180, v = S.aim.power * VMAX, tb = S.treb;
+    S.rocks.push({ x: LAUNCH.x + tb.x, y: LAUNCH.y, vx: Math.cos(a) * v, vy: -Math.sin(a) * v, rot: 0, wind: S.wind, trail: [] });
+    // Rolls forward with the throw, rocks back, and settles a little off its old spot.
+    tb.v = 90 + S.aim.power * 170;
+    tb.base = clamp(tb.base + rand(-5, 5), -18, 18);
+    dust(TX + tb.x - 60, GROUND + 4, 3, 0.6); dust(TX + tb.x + 60, GROUND + 4, 3, 0.6);
   }
 
   // ---------- Effects ----------
@@ -1187,6 +1195,11 @@
     });
     if (S.craneShake > 0) S.craneShake -= dt * 0.6;
 
+    // trebuchet: damped spring back toward where the crew wants it standing
+    const tb = S.treb;
+    tb.v += (-26 * (tb.x - tb.base) - 5.5 * tb.v) * dt;
+    const move = tb.v * dt;
+    tb.x += move; tb.wheel += move / 14;
     // trebuchet arm
     const A = S.arm;
     if (A.mode === "swing") {
@@ -1692,9 +1705,17 @@
     ctx.fillStyle = TN("#7d7468");
     [[292, 0], [310, 1], [326, 0], [301, -12], [318, -11], [310, -22]].forEach(([x, dy]) => ell(x, base - 8 + dy, 10, 8));
     ctx.fillStyle = TN("#9b9285"); [[288, -3], [306, -15]].forEach(([x, dy]) => ell(x, base - 10 + dy, 3, 2));
+    // ruts the wheels have worn into the grass
+    ctx.fillStyle = "rgba(60,45,30,.25)"; ell(TX - 72, base - 1, 26, 4); ell(TX + 72, base - 1, 26, 4);
+    ctx.translate(S.treb.x, 0);
     // base
     ctx.fillStyle = TN("#4a321c"); ctx.fillRect(TX - 100, base - 36, 200, 14);
     ctx.fillStyle = TN("#3a2716"); ell(TX - 72, base - 13, 14, 14); ell(TX + 72, base - 13, 14, 14);
+    ctx.strokeStyle = TN("#8a6a45"); ctx.lineWidth = 2;
+    for (const wx of [TX - 72, TX + 72]) for (let s = 0; s < 3; s++) {
+      const th = S.treb.wheel + (s * Math.PI) / 3;
+      line(wx - Math.cos(th) * 12, base - 13 - Math.sin(th) * 12, wx + Math.cos(th) * 12, base - 13 + Math.sin(th) * 12);
+    }
     ctx.fillStyle = TN("#8a6a45"); ell(TX - 72, base - 13, 4, 4); ell(TX + 72, base - 13, 4, 4);
     ctx.strokeStyle = TN("#6b4a2b"); ctx.lineWidth = 11;
     line(TX - 60, base - 30, TX - 4, TPY); line(TX + 60, base - 30, TX + 4, TPY);
@@ -1714,14 +1735,8 @@
     if (S.arm.mode !== "recover") {
       const off = -0.32 * Math.PI * (1 - t);
       let rx = tipX + Math.cos(a + off) * SLING, ry = tipY + Math.sin(a + off) * SLING;
-      // While you drag, the sling visibly loads up against the aim.
-      const pulling = S.drag && S.drag.len > 12 && S.loaded && S.arm.mode === "rest";
-      if (pulling) {
-        const ang = (S.aim.angle * Math.PI) / 180, pull = 24 + S.aim.power * 92;
-        rx -= Math.cos(ang) * pull; ry += Math.sin(ang) * pull;
-      }
       if (ry > base - 12) ry = base - 12;
-      ctx.strokeStyle = TN(pulling ? "#e6d4a6" : "#c9b48a"); ctx.lineWidth = pulling ? 2.5 : 1.5; line(tipX, tipY, rx, ry);
+      ctx.strokeStyle = TN("#c9b48a"); ctx.lineWidth = 1.5; line(tipX, tipY, rx, ry);
       drawRockAt(rx, ry, 0);
     }
     ctx.restore();
@@ -1955,7 +1970,7 @@
   // Flight path with no wind: what the crew can predict, the weather is on you.
   function predict() {
     const a = (S.aim.angle * Math.PI) / 180, v = S.aim.power * VMAX;
-    let x = LAUNCH.x, y = LAUNCH.y, vx = Math.cos(a) * v, vy = -Math.sin(a) * v;
+    let x = LAUNCH.x + S.treb.x, y = LAUNCH.y, vx = Math.cos(a) * v, vy = -Math.sin(a) * v;
     const pts = [], h = 1 / 90;
     for (let i = 0; i < 900; i++) {
       vy += GRAV * h; x += vx * h; y += vy * h;
@@ -1967,6 +1982,7 @@
   function drawAim() {
     if (!canPlay() || !S.loaded || S.arm.mode !== "rest") return;
     const { pts, x: lx, y: ly } = predict();
+    if (!pts.length) return;
     pts.forEach(([x, y], i) => {
       const u = i / pts.length, r = 3.4 - u * 1.2;
       ctx.globalAlpha = 0.28 - u * 0.1; ctx.fillStyle = "#1d2a1f"; ell(x + 1.5, y + 1.5, r, r);
